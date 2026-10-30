@@ -2,11 +2,11 @@
 /*
 =========================================================
  SIGMA 3.0 — BACKTEST ENGINE
- PART 1: CONFIGURATION AND TRADE SIMULATION
+ CONFIGURATION AND TRADE SIMULATION
 =========================================================
 */
 
-const BACKTEST_SETTINGS = {
+const BACKTEST_SETTINGS = Object.freeze({
 
     INITIAL_CAPITAL: 10000,
 
@@ -24,7 +24,7 @@ const BACKTEST_SETTINGS = {
 
     MAX_HISTORY: 5000
 
-};
+});
 
 
 /* =====================================================
@@ -34,35 +34,77 @@ const BACKTEST_SETTINGS = {
 function validateBacktestData(candles) {
 
     if (!Array.isArray(candles)) {
-
         throw new Error("Invalid backtest data.");
-
     }
 
     if (candles.length < BACKTEST_SETTINGS.MIN_CANDLES) {
-
         throw new Error(
             "At least 100 historical candles are required."
         );
-
     }
 
-    for (const candle of candles) {
+    if (candles.length > BACKTEST_SETTINGS.MAX_HISTORY) {
+        throw new Error(
+            "Historical data exceeds maximum allowed candles."
+        );
+    }
+
+    for (let i = 0; i < candles.length; i++) {
+
+        const candle = candles[i];
+
+        if (!candle || typeof candle !== "object") {
+            throw new Error("Invalid historical candle.");
+        }
+
+        const values = [
+            candle.open,
+            candle.high,
+            candle.low,
+            candle.close
+        ];
+
+        if (!values.every(Number.isFinite)) {
+            throw new Error("Invalid historical candle values.");
+        }
 
         if (
-            !Number.isFinite(candle.open) ||
-            !Number.isFinite(candle.high) ||
-            !Number.isFinite(candle.low) ||
-            !Number.isFinite(candle.close) ||
             candle.low <= 0 ||
-            candle.high < candle.low
+            candle.high < candle.low ||
+            candle.open < candle.low ||
+            candle.open > candle.high ||
+            candle.close < candle.low ||
+            candle.close > candle.high
         ) {
+            throw new Error("Inconsistent historical candle.");
+        }
 
-            throw new Error("Invalid historical candle.");
+        if (
+            candle.volume !== undefined &&
+            (!Number.isFinite(candle.volume) || candle.volume < 0)
+        ) {
+            throw new Error("Invalid historical candle volume.");
+        }
 
+        if (
+            candle.time !== undefined &&
+            !Number.isFinite(candle.time)
+        ) {
+            throw new Error("Invalid candle timestamp.");
+        }
+
+        if (
+            i > 0 &&
+            candle.time !== undefined &&
+            candles[i - 1].time !== undefined &&
+            candle.time <= candles[i - 1].time
+        ) {
+            throw new Error("Candle timestamps must be increasing.");
         }
 
     }
+
+    return true;
 
 }
 
@@ -73,11 +115,24 @@ function validateBacktestData(candles) {
 
 function calculateEMA(values, period) {
 
+    if (
+        !Array.isArray(values) ||
+        !values.length ||
+        !Number.isInteger(period) ||
+        period < 1
+    ) {
+        throw new Error("Invalid EMA parameters.");
+    }
+
     const multiplier = 2 / (period + 1);
 
     let previous = values[0];
 
     return values.map((value, index) => {
+
+        if (!Number.isFinite(value)) {
+            throw new Error("Invalid EMA input.");
+        }
 
         if (index === 0) {
             return previous;
@@ -100,16 +155,28 @@ function calculateEMA(values, period) {
 
 function calculateRSI(values, period = 14) {
 
-    return values.map((value, index) => {
+    if (
+        !Array.isArray(values) ||
+        !Number.isInteger(period) ||
+        period < 1
+    ) {
+        throw new Error("Invalid RSI parameters.");
+    }
 
-        if (index < period) return 50;
+    const result = Array(values.length).fill(50);
+
+    if (values.length <= period) {
+        return result;
+    }
+
+    for (let i = period; i < values.length; i++) {
 
         let gains = 0;
         let losses = 0;
 
         for (
-            let j = index - period + 1;
-            j <= index;
+            let j = i - period + 1;
+            j <= i;
             j++
         ) {
 
@@ -124,13 +191,21 @@ function calculateRSI(values, period = 14) {
 
         }
 
-        if (losses === 0) return 100;
+        if (losses === 0) {
+
+            result[i] = gains === 0 ? 50 : 100;
+
+            continue;
+
+        }
 
         const rs = gains / losses;
 
-        return 100 - (100 / (1 + rs));
+        result[i] = 100 - (100 / (1 + rs));
 
-    });
+    }
+
+    return result;
 
 }
 
@@ -151,9 +226,14 @@ function calculateMACD(values) {
 
     const signal = calculateEMA(line, 9);
 
+    const histogram = line.map(
+        (value, index) => value - signal[index]
+    );
+
     return {
         line,
-        signal
+        signal,
+        histogram
     };
 
 }
@@ -165,12 +245,18 @@ function calculateMACD(values) {
 
 function calculateATR(candles, period = 14) {
 
+    if (
+        !Array.isArray(candles) ||
+        !Number.isInteger(period) ||
+        period < 1
+    ) {
+        throw new Error("Invalid ATR parameters.");
+    }
+
     return candles.map((candle, index) => {
 
         if (index === 0) {
-
             return candle.high - candle.low;
-
         }
 
         let sum = 0;
@@ -208,14 +294,29 @@ function calculateATR(candles, period = 14) {
 
 function executionPrice(price, direction) {
 
+    if (
+        !Number.isFinite(price) ||
+        price <= 0
+    ) {
+        throw new Error("Invalid execution price.");
+    }
+
     const adjustment =
         BACKTEST_SETTINGS.SLIPPAGE_RATE;
 
-    return direction === "BUY"
+    if (direction === "BUY") {
 
-        ? price * (1 + adjustment)
+        return price * (1 + adjustment);
 
-        : price * (1 - adjustment);
+    }
+
+    if (direction === "SELL") {
+
+        return price * (1 - adjustment);
+
+    }
+
+    throw new Error("Invalid execution direction.");
 
 }
 
@@ -226,10 +327,18 @@ function executionPrice(price, direction) {
 
 function calculateFee(notional) {
 
+    if (
+        !Number.isFinite(notional) ||
+        notional < 0
+    ) {
+        throw new Error("Invalid trading notional.");
+    }
+
     return notional * BACKTEST_SETTINGS.FEE_RATE;
 
 }
 
+
 /* =====================================================
    GENERATE HISTORICAL INDICATORS
 ===================================================== */
@@ -265,7 +374,13 @@ function calculateIndicators(candles) {
 
 function historicalSignal(data, index) {
 
-    if (index < 50) return "HOLD";
+    if (
+        !data ||
+        index < 50 ||
+        index >= data.ema20.length
+    ) {
+        return "HOLD";
+    }
 
     const bullishTrend =
         data.ema20[index] > data.ema50[index];
@@ -289,9 +404,7 @@ function historicalSignal(data, index) {
         rsi > 50 &&
         rsi < 70
     ) {
-
         return "BUY";
-
     }
 
     if (
@@ -300,9 +413,7 @@ function historicalSignal(data, index) {
         rsi < 50 &&
         rsi > 30
     ) {
-
         return "SELL";
-
     }
 
     return "HOLD";
@@ -322,6 +433,19 @@ function openTrade(
     index
 ) {
 
+    if (!["BUY", "SELL"].includes(direction)) {
+        throw new Error("Invalid trade direction.");
+    }
+
+    if (
+        !Number.isFinite(capital) ||
+        capital <= 0 ||
+        !Number.isFinite(atr) ||
+        atr <= 0
+    ) {
+        throw new Error("Invalid trade parameters.");
+    }
+
     const rawPrice = candle.close;
 
     const entry = executionPrice(
@@ -331,6 +455,10 @@ function openTrade(
 
     const allocation =
         capital * BACKTEST_SETTINGS.POSITION_SIZE;
+
+    if (allocation <= 0) {
+        throw new Error("Invalid position allocation.");
+    }
 
     const quantity = allocation / entry;
 
@@ -384,6 +512,18 @@ function closeTrade(
     reason
 ) {
 
+    if (
+        !trade ||
+        !Number.isFinite(rawExitPrice) ||
+        rawExitPrice <= 0
+    ) {
+        throw new Error("Invalid trade exit parameters.");
+    }
+
+    if (index < trade.entryIndex) {
+        throw new Error("Invalid trade exit index.");
+    }
+
     const exit = executionPrice(
         rawExitPrice,
         trade.direction === "BUY" ? "SELL" : "BUY"
@@ -402,10 +542,11 @@ function closeTrade(
 
         : (trade.entry - exit) * trade.quantity;
 
+    const totalFees =
+        trade.entryFee + exitFee;
+
     const netProfit =
-        grossProfit -
-        trade.entryFee -
-        exitFee;
+        grossProfit - totalFees;
 
     return {
 
@@ -419,7 +560,7 @@ function closeTrade(
 
         grossProfit,
 
-        fees: trade.entryFee + exitFee,
+        fees: totalFees,
 
         netProfit,
 
@@ -442,6 +583,10 @@ function closeTrade(
 
 function checkExit(trade, candle) {
 
+    if (!trade || !candle) {
+        return null;
+    }
+
     if (trade.direction === "BUY") {
 
         const stopHit =
@@ -451,8 +596,8 @@ function checkExit(trade, candle) {
             candle.high >= trade.takeProfit;
 
         // Conservative assumption:
-        // If both levels are touched in one candle,
-        // assume stop-loss happened first.
+        // Stop-loss takes priority if both levels
+        // are touched during the same candle.
 
         if (stopHit) {
 
@@ -472,7 +617,7 @@ function checkExit(trade, candle) {
 
         }
 
-    } else {
+    } else if (trade.direction === "SELL") {
 
         const stopHit =
             candle.high >= trade.stopLoss;
@@ -504,276 +649,15 @@ function checkExit(trade, candle) {
 
 }
 
+
 /* =====================================================
-   GENERATE HISTORICAL INDICATORS
+   EXPORT SETTINGS
 ===================================================== */
 
-function calculateIndicators(candles) {
-
-    const prices = candles.map(c => c.close);
-
-    const ema20 = calculateEMA(prices, 20);
-
-    const ema50 = calculateEMA(prices, 50);
-
-    const rsi = calculateRSI(prices, 14);
-
-    const macd = calculateMACD(prices);
-
-    const atr = calculateATR(candles, 14);
+export function getBacktestSettings() {
 
     return {
-        ema20,
-        ema50,
-        rsi,
-        macd,
-        atr
+        ...BACKTEST_SETTINGS
     };
-
-}
-
-
-/* =====================================================
-   HISTORICAL SIGNAL GENERATOR
-===================================================== */
-
-function historicalSignal(data, index) {
-
-    if (index < 50) return "HOLD";
-
-    const bullishTrend =
-        data.ema20[index] > data.ema50[index];
-
-    const bearishTrend =
-        data.ema20[index] < data.ema50[index];
-
-    const bullishMACD =
-        data.macd.line[index] >
-        data.macd.signal[index];
-
-    const bearishMACD =
-        data.macd.line[index] <
-        data.macd.signal[index];
-
-    const rsi = data.rsi[index];
-
-    if (
-        bullishTrend &&
-        bullishMACD &&
-        rsi > 50 &&
-        rsi < 70
-    ) {
-
-        return "BUY";
-
-    }
-
-    if (
-        bearishTrend &&
-        bearishMACD &&
-        rsi < 50 &&
-        rsi > 30
-    ) {
-
-        return "SELL";
-
-    }
-
-    return "HOLD";
-
-}
-
-
-/* =====================================================
-   OPEN TRADE
-===================================================== */
-
-function openTrade(
-    direction,
-    candle,
-    atr,
-    capital,
-    index
-) {
-
-    const rawPrice = candle.close;
-
-    const entry = executionPrice(
-        rawPrice,
-        direction === "BUY" ? "BUY" : "SELL"
-    );
-
-    const allocation =
-        capital * BACKTEST_SETTINGS.POSITION_SIZE;
-
-    const quantity = allocation / entry;
-
-    const entryFee = calculateFee(
-        allocation
-    );
-
-    const stopDistance =
-        atr * BACKTEST_SETTINGS.STOP_ATR_MULTIPLIER;
-
-    const targetDistance =
-        atr * BACKTEST_SETTINGS.TAKE_PROFIT_MULTIPLIER;
-
-    const isLong = direction === "BUY";
-
-    return {
-
-        direction,
-
-        entry,
-
-        quantity,
-
-        allocation,
-
-        entryFee,
-
-        entryIndex: index,
-
-        stopLoss: isLong
-            ? entry - stopDistance
-            : entry + stopDistance,
-
-        takeProfit: isLong
-            ? entry + targetDistance
-            : entry - targetDistance
-
-    };
-
-}
-
-
-/* =====================================================
-   CLOSE TRADE
-===================================================== */
-
-function closeTrade(
-    trade,
-    rawExitPrice,
-    index,
-    reason
-) {
-
-    const exit = executionPrice(
-        rawExitPrice,
-        trade.direction === "BUY" ? "SELL" : "BUY"
-    );
-
-    const exitNotional =
-        trade.quantity * exit;
-
-    const exitFee = calculateFee(
-        exitNotional
-    );
-
-    const grossProfit = trade.direction === "BUY"
-
-        ? (exit - trade.entry) * trade.quantity
-
-        : (trade.entry - exit) * trade.quantity;
-
-    const netProfit =
-        grossProfit -
-        trade.entryFee -
-        exitFee;
-
-    return {
-
-        direction: trade.direction,
-
-        entry: trade.entry,
-
-        exit,
-
-        quantity: trade.quantity,
-
-        grossProfit,
-
-        fees: trade.entryFee + exitFee,
-
-        netProfit,
-
-        entryIndex: trade.entryIndex,
-
-        exitIndex: index,
-
-        candlesHeld: index - trade.entryIndex,
-
-        reason
-
-    };
-
-}
-
-
-/* =====================================================
-   CHECK STOP LOSS AND TAKE PROFIT
-===================================================== */
-
-function checkExit(trade, candle) {
-
-    if (trade.direction === "BUY") {
-
-        const stopHit =
-            candle.low <= trade.stopLoss;
-
-        const targetHit =
-            candle.high >= trade.takeProfit;
-
-        // Conservative assumption:
-        // If both levels are touched in one candle,
-        // assume stop-loss happened first.
-
-        if (stopHit) {
-
-            return {
-                price: trade.stopLoss,
-                reason: "STOP_LOSS"
-            };
-
-        }
-
-        if (targetHit) {
-
-            return {
-                price: trade.takeProfit,
-                reason: "TAKE_PROFIT"
-            };
-
-        }
-
-    } else {
-
-        const stopHit =
-            candle.high >= trade.stopLoss;
-
-        const targetHit =
-            candle.low <= trade.takeProfit;
-
-        if (stopHit) {
-
-            return {
-                price: trade.stopLoss,
-                reason: "STOP_LOSS"
-            };
-
-        }
-
-        if (targetHit) {
-
-            return {
-                price: trade.takeProfit,
-                reason: "TAKE_PROFIT"
-            };
-
-        }
-
-    }
-
-    return null;
 
 }
