@@ -1,0 +1,401 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080e19">
+
+<title>SIGMA 3.0 | Crypto Intelligence</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/style.css">
+
+<script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+
+</head>
+
+<body>
+
+<header class="topbar">
+
+    <div class="brand">
+        SIGMA <span>3.0</span>
+        <small>CRYPTO INTELLIGENCE</small>
+    </div>
+
+    <div class="header-right">
+        <span id="connectionStatus" class="status offline">
+            ● INITIALIZING
+        </span>
+        <span id="clock">--:--:--</span>
+    </div>
+
+</header>
+
+
+<main class="container">
+
+    <!-- MARKET TOOLBAR -->
+
+    <section class="toolbar">
+
+        <div class="control">
+            <label>CRYPTOCURRENCY</label>
+            <select id="assetSelect">
+                <option value="BTCUSDT">BTC / USDT</option>
+                <option value="ETHUSDT">ETH / USDT</option>
+                <option value="BNBUSDT">BNB / USDT</option>
+                <option value="SOLUSDT">SOL / USDT</option>
+                <option value="XRPUSDT">XRP / USDT</option>
+            </select>
+        </div>
+
+        <div class="control">
+            <label>TIMEFRAME</label>
+            <select id="timeframe">
+                <option value="1h">1 HOUR</option>
+                <option value="4h">4 HOURS</option>
+                <option value="1d" selected>1 DAY</option>
+                <option value="1w">1 WEEK</option>
+            </select>
+        </div>
+
+        <div class="control">
+            <label>FORECAST HORIZON</label>
+            <select id="forecastHorizon">
+                <option value="7">7 PERIODS</option>
+                <option value="14">14 PERIODS</option>
+                <option value="30" selected>30 PERIODS</option>
+            </select>
+        </div>
+
+        <button id="refreshButton" class="primary">
+            ↻ REFRESH
+        </button>
+
+        <span id="lastUpdate" class="last-update">
+            Waiting for market data
+        </span>
+
+    </section>
+
+
+    <!-- PRICE OVERVIEW -->
+
+    <section class="metrics-grid">
+
+        <article class="card">
+            <div class="label">LIVE PRICE</div>
+            <div id="currentPrice" class="metric">—</div>
+            <div id="priceChange" class="metric-sub">—</div>
+        </article>
+
+        <article class="card">
+            <div class="label">RSI · 14</div>
+            <div id="rsiValue" class="metric">—</div>
+            <div id="rsiSignal" class="metric-sub">Waiting</div>
+        </article>
+
+        <article class="card">
+            <div class="label">MACD</div>
+            <div id="macdValue" class="metric">—</div>
+            <div id="macdSignal" class="metric-sub">Waiting</div>
+        </article>
+
+        <article class="card">
+            <div class="label">ATR · 14</div>
+            <div id="atrValue" class="metric">—</div>
+            <div class="metric-sub">Market volatility</div>
+        </article>
+
+        <article class="card">
+            <div class="label">TREND DIRECTION</div>
+            <div id="trendValue" class="metric">—</div>
+            <div class="metric-sub">EMA analysis</div>
+        </article>
+
+        <article class="card">
+            <div class="label">SIGNAL STRENGTH</div>
+            <div id="signalScore" class="metric">—</div>
+            <div class="metric-sub">Composite score</div>
+        </article>
+
+        <article class="card">
+            <div class="label">24H VOLUME</div>
+            <div id="volumeValue" class="metric">—</div>
+            <div class="metric-sub">USDT</div>
+        </article>
+
+        <article class="card">
+            <div class="label">MARKET DIRECTION</div>
+            <div id="marketBias" class="metric">—</div>
+            <div class="metric-sub">Combined analysis</div>
+        </article>
+
+    </section>
+
+
+    <!-- MAIN CHART -->
+
+    <section class="panel chart-panel">
+
+        <div class="panel-header">
+
+            <div>
+                <h2>PRICE ACTION</h2>
+                <span class="muted">
+                    Interactive candlestick chart
+                </span>
+            </div>
+
+            <div class="chart-controls">
+
+                <button class="chart-type active" data-type="candles">
+                    CANDLES
+                </button>
+
+                <button class="chart-type" data-type="line">
+                    LINE
+                </button>
+
+                <button id="resetChart">
+                    RESET ZOOM
+                </button>
+
+            </div>
+
+        </div>
+
+        <div id="priceChart" class="chart-container"></div>
+
+        <div class="chart-legend">
+            <span class="legend-item"><i class="blue"></i> PRICE</span>
+            <span class="legend-item"><i class="green"></i> EMA 20</span>
+            <span class="legend-item"><i class="gold"></i> EMA 50</span>
+        </div>
+
+    </section>
+
+
+    <!-- ANALYSIS PANELS -->
+
+    <section class="two-columns">
+
+        <article class="panel">
+
+            <h2>TRADING INTELLIGENCE</h2>
+
+            <div id="mainSignal" class="signal-box neutral">
+                <div class="signal-title">CURRENT RECOMMENDATION</div>
+                <div id="signalAction" class="signal-action">
+                    ANALYSING
+                </div>
+                <div id="signalDescription" class="muted">
+                    Waiting for market analysis
+                </div>
+            </div>
+
+            <div class="analysis-row">
+                <span>EMA 9</span>
+                <strong id="ema9">—</strong>
+            </div>
+
+            <div class="analysis-row">
+                <span>EMA 20</span>
+                <strong id="ema20">—</strong>
+            </div>
+
+            <div class="analysis-row">
+                <span>EMA 50</span>
+                <strong id="ema50">—</strong>
+            </div>
+
+            <div class="analysis-row">
+                <span>ADX</span>
+                <strong id="adxValue">—</strong>
+            </div>
+
+            <div class="analysis-row">
+                <span>BOLLINGER BANDS</span>
+                <strong id="bollingerValue">—</strong>
+            </div>
+
+        </article>
+
+
+        <article class="panel">
+
+            <h2>PRICE FORECAST</h2>
+
+            <div class="forecast-card">
+                <span class="muted">EXPECTED DIRECTION</span>
+                <div id="forecastDirection" class="forecast-direction">
+                    ANALYSING
+                </div>
+            </div>
+
+            <div class="analysis-row">
+                <span>Expected price</span>
+                <strong id="forecastPrice">—</strong>
+            </div>
+
+            <div class="analysis-row">
+                <span>Upper scenario</span>
+                <strong id="forecastUpper">—</strong>
+            </div>
+
+            <div class="analysis-row">
+                <span>Lower scenario</span>
+                <strong id="forecastLower">—</strong>
+            </div>
+
+            <div class="analysis-row">
+                <span>Forecast horizon</span>
+                <strong id="forecastPeriods">30 periods</strong>
+            </div>
+
+            <div id="forecastDisclaimer" class="muted disclaimer">
+                Experimental statistical scenarios.
+                Not guaranteed predictions.
+            </div>
+
+        </article>
+
+    </section>
+
+
+    <!-- INDICATORS -->
+
+    <section class="two-columns">
+
+        <article class="panel">
+
+            <h2>RSI HISTORY</h2>
+
+            <div id="rsiChart" class="indicator-chart"></div>
+
+        </article>
+
+        <article class="panel">
+
+            <h2>MACD HISTORY</h2>
+
+            <div id="macdChart" class="indicator-chart"></div>
+
+        </article>
+
+    </section>
+
+
+    <!-- RISK MANAGEMENT -->
+
+    <section class="panel">
+
+        <h2>RISK MANAGEMENT</h2>
+
+        <div class="risk-grid">
+
+            <div>
+                <div class="label">ENTRY REFERENCE</div>
+                <div id="entryPrice" class="risk-value">—</div>
+            </div>
+
+            <div>
+                <div class="label">STOP LOSS</div>
+                <div id="stopLoss" class="risk-value negative">—</div>
+            </div>
+
+            <div>
+                <div class="label">TAKE PROFIT 1</div>
+                <div id="takeProfit1" class="risk-value positive">—</div>
+            </div>
+
+            <div>
+                <div class="label">TAKE PROFIT 2</div>
+                <div id="takeProfit2" class="risk-value positive">—</div>
+            </div>
+
+        </div>
+
+        <div class="muted disclaimer">
+            Illustrative risk levels based on volatility.
+            Not personalized investment advice.
+        </div>
+
+    </section>
+
+
+    <!-- MARKET SCANNER -->
+
+    <section class="panel market-panel">
+
+        <div class="panel-header">
+            <div>
+                <h2>MARKET SCANNER</h2>
+                <span class="muted">
+                    Top USDT cryptocurrency markets
+                </span>
+            </div>
+
+            <span id="scannerStatus" class="status">
+                INITIALIZING
+            </span>
+        </div>
+
+        <div class="table-wrapper">
+
+            <table>
+
+                <thead>
+                    <tr>
+                        <th>ASSET</th>
+                        <th>PRICE</th>
+                        <th>24H CHANGE</th>
+                        <th>VOLUME</th>
+                        <th>SIGNAL</th>
+                    </tr>
+                </thead>
+
+                <tbody id="marketTable">
+
+                    <tr>
+                        <td colspan="5">
+                            Loading market data...
+                        </td>
+                    </tr>
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </section>
+
+
+</main>
+
+
+<footer>
+
+    <div>SIGMA 3.0 · CRYPTO INTELLIGENCE TERMINAL</div>
+
+    <p>
+        Market data supplied by public exchange endpoints.
+        Technical analysis and forecasts are experimental.
+        Historical performance does not guarantee future results.
+        SIGMA does not execute trades.
+    </p>
+
+</footer>
+
+
+<script type="module" src="js/app.js"></script>
+
+</body>
+</html>
