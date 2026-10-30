@@ -2,11 +2,11 @@
 /*
 =========================================================
  SIGMA 3.0 — BACKTEST ENGINE
- CONFIGURATION AND TRADE SIMULATION
+ PART 1: CONFIGURATION, VALIDATION AND INDICATORS
 =========================================================
 */
 
-const BACKTEST_SETTINGS = Object.freeze({
+const BACKTEST_SETTINGS = {
 
     INITIAL_CAPITAL: 10000,
 
@@ -22,9 +22,17 @@ const BACKTEST_SETTINGS = Object.freeze({
 
     MIN_CANDLES: 100,
 
-    MAX_HISTORY: 5000
+    MAX_HISTORY: 5000,
 
-});
+    RSI_PERIOD: 14,
+
+    ATR_PERIOD: 14,
+
+    EMA_FAST: 20,
+
+    EMA_SLOW: 50
+
+};
 
 
 /* =====================================================
@@ -45,61 +53,62 @@ function validateBacktestData(candles) {
 
     if (candles.length > BACKTEST_SETTINGS.MAX_HISTORY) {
         throw new Error(
-            "Historical data exceeds maximum allowed candles."
+            "Maximum historical candle limit exceeded."
         );
     }
 
-    for (let i = 0; i < candles.length; i++) {
+    let previousTime = -Infinity;
 
-        const candle = candles[i];
+    for (const candle of candles) {
 
         if (!candle || typeof candle !== "object") {
             throw new Error("Invalid historical candle.");
         }
 
-        const values = [
-            candle.open,
-            candle.high,
-            candle.low,
-            candle.close
-        ];
+        const {
+            open,
+            high,
+            low,
+            close
+        } = candle;
 
-        if (!values.every(Number.isFinite)) {
-            throw new Error("Invalid historical candle values.");
+        if (
+            !Number.isFinite(open) ||
+            !Number.isFinite(high) ||
+            !Number.isFinite(low) ||
+            !Number.isFinite(close)
+        ) {
+            throw new Error(
+                "Historical candle contains invalid prices."
+            );
         }
 
         if (
-            candle.low <= 0 ||
-            candle.high < candle.low ||
-            candle.open < candle.low ||
-            candle.open > candle.high ||
-            candle.close < candle.low ||
-            candle.close > candle.high
+            low <= 0 ||
+            high < low ||
+            open < low ||
+            open > high ||
+            close < low ||
+            close > high
         ) {
-            throw new Error("Inconsistent historical candle.");
+            throw new Error(
+                "Inconsistent historical candle."
+            );
         }
 
-        if (
-            candle.volume !== undefined &&
-            (!Number.isFinite(candle.volume) || candle.volume < 0)
-        ) {
-            throw new Error("Invalid historical candle volume.");
-        }
+        if (candle.time !== undefined) {
 
-        if (
-            candle.time !== undefined &&
-            !Number.isFinite(candle.time)
-        ) {
-            throw new Error("Invalid candle timestamp.");
-        }
+            if (
+                !Number.isFinite(candle.time) ||
+                candle.time <= previousTime
+            ) {
+                throw new Error(
+                    "Invalid or unordered candle timestamps."
+                );
+            }
 
-        if (
-            i > 0 &&
-            candle.time !== undefined &&
-            candles[i - 1].time !== undefined &&
-            candle.time <= candles[i - 1].time
-        ) {
-            throw new Error("Candle timestamps must be increasing.");
+            previousTime = candle.time;
+
         }
 
     }
@@ -124,84 +133,101 @@ function calculateEMA(values, period) {
         throw new Error("Invalid EMA parameters.");
     }
 
+    const result = Array(values.length).fill(null);
+
+    if (values.length < period) {
+        return result;
+    }
+
     const multiplier = 2 / (period + 1);
 
-    let previous = values[0];
+    let initial = 0;
 
-    return values.map((value, index) => {
+    for (let i = 0; i < period; i++) {
 
-        if (!Number.isFinite(value)) {
-            throw new Error("Invalid EMA input.");
-        }
+        initial += values[i];
 
-        if (index === 0) {
-            return previous;
-        }
+    }
+
+    let previous = initial / period;
+
+    result[period - 1] = previous;
+
+    for (let i = period; i < values.length; i++) {
 
         previous =
-            value * multiplier +
+            values[i] * multiplier +
             previous * (1 - multiplier);
 
-        return previous;
+        result[i] = previous;
 
-    });
+    }
+
+    return result;
 
 }
 
 
 /* =====================================================
-   RSI CALCULATION
+   RELATIVE STRENGTH INDEX — WILDER
 ===================================================== */
 
 function calculateRSI(values, period = 14) {
 
-    if (
-        !Array.isArray(values) ||
-        !Number.isInteger(period) ||
-        period < 1
-    ) {
-        throw new Error("Invalid RSI parameters.");
-    }
-
-    const result = Array(values.length).fill(50);
+    const result = Array(values.length).fill(null);
 
     if (values.length <= period) {
         return result;
     }
 
-    for (let i = period; i < values.length; i++) {
+    let gains = 0;
+    let losses = 0;
 
-        let gains = 0;
-        let losses = 0;
+    for (let i = 1; i <= period; i++) {
 
-        for (
-            let j = i - period + 1;
-            j <= i;
-            j++
-        ) {
+        const change = values[i] - values[i - 1];
 
-            const difference =
-                values[j] - values[j - 1];
+        if (change > 0) {
+            gains += change;
+        } else {
+            losses -= change;
+        }
 
-            if (difference > 0) {
-                gains += difference;
-            } else {
-                losses -= difference;
-            }
+    }
+
+    let averageGain = gains / period;
+    let averageLoss = losses / period;
+
+    function calculateValue() {
+
+        if (averageLoss === 0) {
+
+            return averageGain === 0 ? 50 : 100;
 
         }
 
-        if (losses === 0) {
+        const rs = averageGain / averageLoss;
 
-            result[i] = gains === 0 ? 50 : 100;
+        return 100 - (100 / (1 + rs));
 
-            continue;
+    }
 
-        }
+    result[period] = calculateValue();
 
-        const rs = gains / losses;
+    for (let i = period + 1; i < values.length; i++) {
 
-        result[i] = 100 - (100 / (1 + rs));
+        const change = values[i] - values[i - 1];
+
+        const gain = Math.max(change, 0);
+        const loss = Math.max(-change, 0);
+
+        averageGain =
+            (averageGain * (period - 1) + gain) / period;
+
+        averageLoss =
+            (averageLoss * (period - 1) + loss) / period;
+
+        result[i] = calculateValue();
 
     }
 
@@ -217,18 +243,37 @@ function calculateRSI(values, period = 14) {
 function calculateMACD(values) {
 
     const fast = calculateEMA(values, 12);
-
     const slow = calculateEMA(values, 26);
 
-    const line = values.map(
-        (_, index) => fast[index] - slow[index]
-    );
+    const line = Array(values.length).fill(null);
 
-    const signal = calculateEMA(line, 9);
+    for (let i = 25; i < values.length; i++) {
 
-    const histogram = line.map(
-        (value, index) => value - signal[index]
-    );
+        line[i] = fast[i] - slow[i];
+
+    }
+
+    const validLine = line.slice(25);
+
+    const validSignal = calculateEMA(validLine, 9);
+
+    const signal = Array(values.length).fill(null);
+    const histogram = Array(values.length).fill(null);
+
+    for (let i = 0; i < validSignal.length; i++) {
+
+        const index = 25 + i;
+
+        signal[index] = validSignal[i];
+
+        if (signal[index] !== null) {
+
+            histogram[index] =
+                line[index] - signal[index];
+
+        }
+
+    }
 
     return {
         line,
@@ -240,101 +285,64 @@ function calculateMACD(values) {
 
 
 /* =====================================================
-   ATR CALCULATION
+   AVERAGE TRUE RANGE — WILDER
 ===================================================== */
 
 function calculateATR(candles, period = 14) {
 
-    if (
-        !Array.isArray(candles) ||
-        !Number.isInteger(period) ||
-        period < 1
-    ) {
-        throw new Error("Invalid ATR parameters.");
+    const result = Array(candles.length).fill(null);
+
+    if (candles.length <= period) {
+        return result;
     }
 
-    return candles.map((candle, index) => {
+    const ranges = [];
 
-        if (index === 0) {
-            return candle.high - candle.low;
-        }
+    for (let i = 1; i < candles.length; i++) {
 
-        let sum = 0;
+        const current = candles[i];
+        const previous = candles[i - 1];
 
-        const start = Math.max(1, index - period + 1);
+        const trueRange = Math.max(
 
-        for (let j = start; j <= index; j++) {
+            current.high - current.low,
 
-            const current = candles[j];
+            Math.abs(current.high - previous.close),
 
-            const previous = candles[j - 1];
+            Math.abs(current.low - previous.close)
 
-            sum += Math.max(
+        );
 
-                current.high - current.low,
-
-                Math.abs(current.high - previous.close),
-
-                Math.abs(current.low - previous.close)
-
-            );
-
-        }
-
-        return sum / (index - start + 1);
-
-    });
-
-}
-
-
-/* =====================================================
-   TRADE EXECUTION PRICE
-===================================================== */
-
-function executionPrice(price, direction) {
-
-    if (
-        !Number.isFinite(price) ||
-        price <= 0
-    ) {
-        throw new Error("Invalid execution price.");
-    }
-
-    const adjustment =
-        BACKTEST_SETTINGS.SLIPPAGE_RATE;
-
-    if (direction === "BUY") {
-
-        return price * (1 + adjustment);
+        ranges.push(trueRange);
 
     }
 
-    if (direction === "SELL") {
+    let initial = 0;
 
-        return price * (1 - adjustment);
+    for (let i = 0; i < period; i++) {
+
+        initial += ranges[i];
 
     }
 
-    throw new Error("Invalid execution direction.");
+    let previousATR = initial / period;
 
-}
+    result[period] = previousATR;
 
+    for (let i = period + 1; i < candles.length; i++) {
 
-/* =====================================================
-   TRADING FEES
-===================================================== */
+        previousATR = (
 
-function calculateFee(notional) {
+            previousATR * (period - 1) +
+            ranges[i - 1]
 
-    if (
-        !Number.isFinite(notional) ||
-        notional < 0
-    ) {
-        throw new Error("Invalid trading notional.");
+        ) / period;
+
+        result[i] = previousATR;
+
     }
 
-    return notional * BACKTEST_SETTINGS.FEE_RATE;
+    return result;
 
 }
 
@@ -345,24 +353,38 @@ function calculateFee(notional) {
 
 function calculateIndicators(candles) {
 
-    const prices = candles.map(c => c.close);
+    const prices = candles.map(
+        candle => candle.close
+    );
 
     const ema20 = calculateEMA(prices, 20);
 
     const ema50 = calculateEMA(prices, 50);
 
-    const rsi = calculateRSI(prices, 14);
+    const rsi = calculateRSI(
+        prices,
+        BACKTEST_SETTINGS.RSI_PERIOD
+    );
 
     const macd = calculateMACD(prices);
 
-    const atr = calculateATR(candles, 14);
+    const atr = calculateATR(
+        candles,
+        BACKTEST_SETTINGS.ATR_PERIOD
+    );
 
     return {
+
         ema20,
+
         ema50,
+
         rsi,
+
         macd,
+
         atr
+
     };
 
 }
@@ -375,9 +397,12 @@ function calculateIndicators(candles) {
 function historicalSignal(data, index) {
 
     if (
-        !data ||
         index < 50 ||
-        index >= data.ema20.length
+        data.ema20[index] === null ||
+        data.ema50[index] === null ||
+        data.rsi[index] === null ||
+        data.macd.line[index] === null ||
+        data.macd.signal[index] === null
     ) {
         return "HOLD";
     }
@@ -420,6 +445,33 @@ function historicalSignal(data, index) {
 
 }
 
+/* =====================================================
+   TRADE EXECUTION PRICE
+===================================================== */
+
+function executionPrice(price, direction) {
+
+    const slippage = BACKTEST_SETTINGS.SLIPPAGE_RATE;
+
+    if (direction === "BUY") {
+        return price * (1 + slippage);
+    }
+
+    return price * (1 - slippage);
+
+}
+
+
+/* =====================================================
+   TRADING FEES
+===================================================== */
+
+function calculateFee(notional) {
+
+    return notional * BACKTEST_SETTINGS.FEE_RATE;
+
+}
+
 
 /* =====================================================
    OPEN TRADE
@@ -438,33 +490,27 @@ function openTrade(
     }
 
     if (
-        !Number.isFinite(capital) ||
-        capital <= 0 ||
         !Number.isFinite(atr) ||
-        atr <= 0
+        atr <= 0 ||
+        !Number.isFinite(capital) ||
+        capital <= 0
     ) {
-        throw new Error("Invalid trade parameters.");
+        return null;
     }
 
     const rawPrice = candle.close;
 
     const entry = executionPrice(
         rawPrice,
-        direction === "BUY" ? "BUY" : "SELL"
+        direction
     );
 
     const allocation =
         capital * BACKTEST_SETTINGS.POSITION_SIZE;
 
-    if (allocation <= 0) {
-        throw new Error("Invalid position allocation.");
-    }
-
     const quantity = allocation / entry;
 
-    const entryFee = calculateFee(
-        allocation
-    );
+    const entryFee = calculateFee(allocation);
 
     const stopDistance =
         atr * BACKTEST_SETTINGS.STOP_ATR_MULTIPLIER;
@@ -512,16 +558,15 @@ function closeTrade(
     reason
 ) {
 
+    if (!trade) {
+        throw new Error("Invalid trade.");
+    }
+
     if (
-        !trade ||
         !Number.isFinite(rawExitPrice) ||
         rawExitPrice <= 0
     ) {
-        throw new Error("Invalid trade exit parameters.");
-    }
-
-    if (index < trade.entryIndex) {
-        throw new Error("Invalid trade exit index.");
+        throw new Error("Invalid exit price.");
     }
 
     const exit = executionPrice(
@@ -532,9 +577,7 @@ function closeTrade(
     const exitNotional =
         trade.quantity * exit;
 
-    const exitFee = calculateFee(
-        exitNotional
-    );
+    const exitFee = calculateFee(exitNotional);
 
     const grossProfit = trade.direction === "BUY"
 
@@ -542,11 +585,9 @@ function closeTrade(
 
         : (trade.entry - exit) * trade.quantity;
 
-    const totalFees =
-        trade.entryFee + exitFee;
+    const totalFees = trade.entryFee + exitFee;
 
-    const netProfit =
-        grossProfit - totalFees;
+    const netProfit = grossProfit - totalFees;
 
     return {
 
@@ -557,6 +598,8 @@ function closeTrade(
         exit,
 
         quantity: trade.quantity,
+
+        allocation: trade.allocation,
 
         grossProfit,
 
@@ -596,7 +639,7 @@ function checkExit(trade, candle) {
             candle.high >= trade.takeProfit;
 
         // Conservative assumption:
-        // Stop-loss takes priority if both levels
+        // Stop-loss takes priority when both levels
         // are touched during the same candle.
 
         if (stopHit) {
@@ -617,7 +660,7 @@ function checkExit(trade, candle) {
 
         }
 
-    } else if (trade.direction === "SELL") {
+    } else {
 
         const stopHit =
             candle.high >= trade.stopLoss;
@@ -651,7 +694,506 @@ function checkExit(trade, candle) {
 
 
 /* =====================================================
-   EXPORT SETTINGS
+   FORCE CLOSE AT MARKET
+===================================================== */
+
+function forceCloseTrade(
+    trade,
+    candle,
+    index
+) {
+
+    return closeTrade(
+        trade,
+        candle.close,
+        index,
+        "END_OF_BACKTEST"
+    );
+
+}
+
+
+/* =====================================================
+   VALIDATE TRADE RESULT
+===================================================== */
+
+function validateTradeResult(trade) {
+
+    if (!trade) {
+        throw new Error("Invalid trade result.");
+    }
+
+    const required = [
+
+        trade.entry,
+        trade.exit,
+        trade.quantity,
+        trade.grossProfit,
+        trade.fees,
+        trade.netProfit
+
+    ];
+
+    if (!required.every(Number.isFinite)) {
+
+        throw new Error(
+            "Trade result contains invalid values."
+        );
+
+    }
+
+    return true;
+
+}
+
+
+/* =====================================================
+   UPDATE EQUITY
+===================================================== */
+
+function updateEquity(capital, trade) {
+
+    if (
+        !Number.isFinite(capital) ||
+        !trade ||
+        !Number.isFinite(trade.netProfit)
+    ) {
+        throw new Error("Invalid equity calculation.");
+    }
+
+    return capital + trade.netProfit;
+
+}
+
+
+/* =====================================================
+   CALCULATE UNREALIZED PROFIT
+===================================================== */
+
+function calculateUnrealizedProfit(trade, price) {
+
+    if (!trade || !Number.isFinite(price)) {
+        return 0;
+    }
+
+    const exit = executionPrice(
+        price,
+        trade.direction === "BUY" ? "SELL" : "BUY"
+    );
+
+    const grossProfit = trade.direction === "BUY"
+
+        ? (exit - trade.entry) * trade.quantity
+
+        : (trade.entry - exit) * trade.quantity;
+
+    const estimatedExitFee = calculateFee(
+        trade.quantity * exit
+    );
+
+    return (
+        grossProfit -
+        trade.entryFee -
+        estimatedExitFee
+    );
+
+}
+
+
+/* =====================================================
+   EQUITY DRAWDOWN
+===================================================== */
+
+function calculateDrawdown(equity, peak) {
+
+    if (
+        !Number.isFinite(equity) ||
+        !Number.isFinite(peak) ||
+        peak <= 0
+    ) {
+        return 0;
+    }
+
+    return Math.max(
+        0,
+        ((peak - equity) / peak) * 100
+    );
+
+}
+
+/* =====================================================
+   PERFORMANCE STATISTICS
+===================================================== */
+
+function calculateStatistics(
+    initialCapital,
+    finalCapital,
+    trades,
+    equityCurve,
+    maxDrawdown
+) {
+
+    const totalTrades = trades.length;
+
+    const winningTrades = trades.filter(
+        trade => trade.netProfit > 0
+    );
+
+    const losingTrades = trades.filter(
+        trade => trade.netProfit < 0
+    );
+
+    const grossProfit = winningTrades.reduce(
+        (sum, trade) => sum + trade.netProfit,
+        0
+    );
+
+    const grossLoss = Math.abs(
+        losingTrades.reduce(
+            (sum, trade) => sum + trade.netProfit,
+            0
+        )
+    );
+
+    const totalFees = trades.reduce(
+        (sum, trade) => sum + trade.fees,
+        0
+    );
+
+    const netProfit = finalCapital - initialCapital;
+
+    const returnPercentage =
+        (netProfit / initialCapital) * 100;
+
+    const winRate = totalTrades > 0
+
+        ? (winningTrades.length / totalTrades) * 100
+
+        : 0;
+
+    const averageProfit = winningTrades.length
+
+        ? grossProfit / winningTrades.length
+
+        : 0;
+
+    const averageLoss = losingTrades.length
+
+        ? grossLoss / losingTrades.length
+
+        : 0;
+
+    const profitFactor = grossLoss > 0
+
+        ? grossProfit / grossLoss
+
+        : grossProfit > 0
+            ? Infinity
+            : 0;
+
+    const averageTrade = totalTrades > 0
+
+        ? netProfit / totalTrades
+
+        : 0;
+
+    return {
+
+        initialCapital,
+
+        finalCapital,
+
+        netProfit,
+
+        returnPercentage,
+
+        totalTrades,
+
+        winningTrades: winningTrades.length,
+
+        losingTrades: losingTrades.length,
+
+        winRate,
+
+        grossProfit,
+
+        grossLoss,
+
+        totalFees,
+
+        profitFactor,
+
+        averageProfit,
+
+        averageLoss,
+
+        averageTrade,
+
+        maxDrawdown,
+
+        equityCurve
+
+    };
+
+}
+
+
+/* =====================================================
+   MAIN BACKTEST ENGINE
+===================================================== */
+
+export function runBacktest(
+    candles,
+    options = {}
+) {
+
+    validateBacktestData(candles);
+
+    const initialCapital =
+        Number.isFinite(options.initialCapital) &&
+        options.initialCapital > 0
+            ? options.initialCapital
+            : BACKTEST_SETTINGS.INITIAL_CAPITAL;
+
+    let capital = initialCapital;
+
+    let peakCapital = initialCapital;
+
+    let maxDrawdown = 0;
+
+    let activeTrade = null;
+
+    const trades = [];
+
+    const equityCurve = [];
+
+    const indicators = calculateIndicators(candles);
+
+    /*
+       Start after sufficient indicator history.
+       Signals use the completed candle at index i.
+       Trades enter at the next candle's open to avoid
+       look-ahead execution at the signal candle's close.
+    */
+
+    for (
+        let i = 50;
+        i < candles.length - 1;
+        i++
+    ) {
+
+        const candle = candles[i];
+
+        /*
+           Check existing position first.
+        */
+
+        if (activeTrade) {
+
+            const exit = checkExit(
+                activeTrade,
+                candle
+            );
+
+            if (exit) {
+
+                const completedTrade = closeTrade(
+                    activeTrade,
+                    exit.price,
+                    i,
+                    exit.reason
+                );
+
+                validateTradeResult(completedTrade);
+
+                trades.push(completedTrade);
+
+                capital = updateEquity(
+                    capital,
+                    completedTrade
+                );
+
+                activeTrade = null;
+
+            }
+
+        }
+
+        /*
+           Generate a new signal only when flat.
+        */
+
+        if (!activeTrade) {
+
+            const signal = historicalSignal(
+                indicators,
+                i
+            );
+
+            if (signal !== "HOLD") {
+
+                const nextCandle = candles[i + 1];
+
+                const atr = indicators.atr[i];
+
+                if (
+                    Number.isFinite(atr) &&
+                    atr > 0
+                ) {
+
+                    const entryCandle = {
+                        ...nextCandle,
+                        close: nextCandle.open
+                    };
+
+                    activeTrade = openTrade(
+                        signal,
+                        entryCandle,
+                        atr,
+                        capital,
+                        i + 1
+                    );
+
+                }
+
+            }
+
+        }
+
+        /*
+           Update equity and drawdown.
+           Open positions are marked to market.
+        */
+
+        const currentEquity = activeTrade
+
+            ? capital + calculateUnrealizedProfit(
+                activeTrade,
+                candle.close
+            )
+
+            : capital;
+
+        peakCapital = Math.max(
+            peakCapital,
+            currentEquity
+        );
+
+        const drawdown = calculateDrawdown(
+            currentEquity,
+            peakCapital
+        );
+
+        maxDrawdown = Math.max(
+            maxDrawdown,
+            drawdown
+        );
+
+        equityCurve.push({
+
+            index: i,
+
+            time: candle.time ?? i,
+
+            equity: currentEquity,
+
+            drawdown
+
+        });
+
+    }
+
+    /*
+       Close any remaining position at the final candle.
+    */
+
+    if (activeTrade) {
+
+        const lastIndex = candles.length - 1;
+
+        const finalTrade = forceCloseTrade(
+            activeTrade,
+            candles[lastIndex],
+            lastIndex
+        );
+
+        validateTradeResult(finalTrade);
+
+        trades.push(finalTrade);
+
+        capital = updateEquity(
+            capital,
+            finalTrade
+        );
+
+    }
+
+    /*
+       Record final equity.
+    */
+
+    peakCapital = Math.max(
+        peakCapital,
+        capital
+    );
+
+    maxDrawdown = Math.max(
+        maxDrawdown,
+        calculateDrawdown(
+            capital,
+            peakCapital
+        )
+    );
+
+    equityCurve.push({
+
+        index: candles.length - 1,
+
+        time: candles[candles.length - 1].time ??
+            candles.length - 1,
+
+        equity: capital,
+
+        drawdown: calculateDrawdown(
+            capital,
+            peakCapital
+        )
+
+    });
+
+    const statistics = calculateStatistics(
+        initialCapital,
+        capital,
+        trades,
+        equityCurve,
+        maxDrawdown
+    );
+
+    return {
+
+        success: true,
+
+        settings: {
+            ...BACKTEST_SETTINGS
+        },
+
+        statistics,
+
+        trades,
+
+        equityCurve,
+
+        indicators,
+
+        timestamp: Date.now()
+
+    };
+
+}
+
+
+/* =====================================================
+   BACKTEST SETTINGS
 ===================================================== */
 
 export function getBacktestSettings() {
@@ -659,5 +1201,45 @@ export function getBacktestSettings() {
     return {
         ...BACKTEST_SETTINGS
     };
+
+}
+
+
+/* =====================================================
+   RESET BACKTEST SETTINGS
+===================================================== */
+
+export function resetBacktestSettings() {
+
+    return {
+        ...BACKTEST_SETTINGS
+    };
+
+}
+
+
+/* =====================================================
+   EXPORT BACKTEST RESULTS
+===================================================== */
+
+export function exportBacktestResults(results) {
+
+    if (
+        !results ||
+        !results.success ||
+        !Array.isArray(results.trades)
+    ) {
+
+        throw new Error(
+            "Invalid backtest results."
+        );
+
+    }
+
+    return JSON.stringify(
+        results,
+        null,
+        2
+    );
 
 }
