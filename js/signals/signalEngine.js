@@ -199,3 +199,394 @@ function analyzeVolume(data) {
     };
 
 }
+
+/* =====================================================
+   ADX TREND STRENGTH ANALYSIS
+===================================================== */
+
+function analyzeADX(data) {
+
+    if (!validNumber(data.adx)) {
+
+        return {
+            strength: 0,
+            description: "ADX unavailable"
+        };
+
+    }
+
+    if (data.adx >= 25) {
+
+        return {
+            strength: 2,
+            description: "Strong trend"
+        };
+
+    }
+
+    if (data.adx >= 20) {
+
+        return {
+            strength: 1,
+            description: "Developing trend"
+        };
+
+    }
+
+    return {
+        strength: 0,
+        description: "Weak trend"
+    };
+
+}
+
+
+/* =====================================================
+   SIGNAL SCORING
+===================================================== */
+
+function calculateScores(data) {
+
+    let buyScore = 0;
+    let sellScore = 0;
+
+    const trend = analyzeTrend(data);
+    const rsi = analyzeRSI(data);
+    const macd = analyzeMACD(data);
+    const volume = analyzeVolume(data);
+    const adx = analyzeADX(data);
+
+    // EMA trend
+
+    if (trend === "BULLISH") {
+        buyScore += 25;
+    }
+
+    if (trend === "BEARISH") {
+        sellScore += 25;
+    }
+
+    // RSI momentum
+
+    if (rsi.direction === "BULLISH") {
+        buyScore += rsi.strength * 10;
+    }
+
+    if (rsi.direction === "BEARISH") {
+        sellScore += rsi.strength * 10;
+    }
+
+    // MACD momentum
+
+    if (macd.direction === "BULLISH") {
+        buyScore += 20;
+    }
+
+    if (macd.direction === "BEARISH") {
+        sellScore += 20;
+    }
+
+    // Volume confirmation
+
+    if (volume.confirmed) {
+
+        if (trend === "BULLISH") {
+            buyScore += 10;
+        }
+
+        if (trend === "BEARISH") {
+            sellScore += 10;
+        }
+
+    }
+
+    // ADX trend strength
+
+    if (adx.strength > 0) {
+
+        if (trend === "BULLISH") {
+            buyScore += adx.strength * 5;
+        }
+
+        if (trend === "BEARISH") {
+            sellScore += adx.strength * 5;
+        }
+
+    }
+
+    return {
+
+        buyScore: Math.min(100, buyScore),
+
+        sellScore: Math.min(100, sellScore),
+
+        trend,
+
+        rsi,
+
+        macd,
+
+        volume,
+
+        adx
+
+    };
+
+}
+
+
+/* =====================================================
+   RISK MANAGEMENT
+===================================================== */
+
+function calculateRiskLevels(data) {
+
+    const price = Number(data.price);
+
+    const atr = validNumber(data.atr)
+        ? Number(data.atr)
+        : price * 0.02;
+
+    if (price <= 0 || atr <= 0) {
+
+        return null;
+
+    }
+
+    const stopDistance = atr * 2;
+
+    const riskReward = 2;
+
+    return {
+
+        entry: price,
+
+        stopLoss: price - stopDistance,
+
+        takeProfit: price + stopDistance * riskReward,
+
+        riskAmount: stopDistance,
+
+        rewardAmount: stopDistance * riskReward,
+
+        riskRewardRatio: riskReward
+
+    };
+
+}
+
+
+/* =====================================================
+   BEARISH RISK LEVELS
+===================================================== */
+
+function calculateShortRiskLevels(data) {
+
+    const price = Number(data.price);
+
+    const atr = validNumber(data.atr)
+        ? Number(data.atr)
+        : price * 0.02;
+
+    if (price <= 0 || atr <= 0) {
+
+        return null;
+
+    }
+
+    const stopDistance = atr * 2;
+
+    const riskReward = 2;
+
+    return {
+
+        entry: price,
+
+        stopLoss: price + stopDistance,
+
+        takeProfit: price - stopDistance * riskReward,
+
+        riskAmount: stopDistance,
+
+        rewardAmount: stopDistance * riskReward,
+
+        riskRewardRatio: riskReward
+
+    };
+
+}
+
+
+/* =====================================================
+   SIGNAL CONFIDENCE
+===================================================== */
+
+function calculateConfidence(buyScore, sellScore) {
+
+    const difference = Math.abs(buyScore - sellScore);
+
+    return Math.min(95, difference);
+
+}
+
+/* =====================================================
+   MAIN SIGNAL GENERATOR
+===================================================== */
+
+export function generateSignal(data) {
+
+    validateData(data);
+
+    const scores = calculateScores(data);
+
+    const buyScore = scores.buyScore;
+    const sellScore = scores.sellScore;
+
+    let signal = "HOLD";
+    let explanation = "No sufficiently strong trading setup.";
+
+    let risk = null;
+
+    // BUY CONDITIONS
+
+    if (
+        buyScore >= SETTINGS.MIN_BUY_SCORE &&
+        buyScore > sellScore &&
+        scores.trend === "BULLISH"
+    ) {
+
+        signal = "BUY";
+
+        explanation =
+            "Bullish trend with supporting technical indicators.";
+
+        risk = calculateRiskLevels(data);
+
+    }
+
+    // SELL CONDITIONS
+
+    else if (
+        sellScore >= SETTINGS.MIN_SELL_SCORE &&
+        sellScore > buyScore &&
+        scores.trend === "BEARISH"
+    ) {
+
+        signal = "SELL";
+
+        explanation =
+            "Bearish trend with supporting technical indicators.";
+
+        risk = calculateShortRiskLevels(data);
+
+    }
+
+    // CONFLICTING INDICATORS
+
+    else {
+
+        explanation =
+            "Indicators are conflicting or confirmation is insufficient.";
+
+    }
+
+    const confidence = calculateConfidence(
+        buyScore,
+        sellScore
+    );
+
+    return {
+
+        signal,
+
+        confidence,
+
+        scores: {
+
+            buy: buyScore,
+
+            sell: sellScore
+
+        },
+
+        trend: scores.trend,
+
+        indicators: {
+
+            rsi: scores.rsi,
+
+            macd: scores.macd,
+
+            volume: scores.volume,
+
+            adx: scores.adx
+
+        },
+
+        risk,
+
+        explanation,
+
+        timestamp: Date.now()
+
+    };
+
+}
+
+
+/* =====================================================
+   SIGNAL HISTORY
+===================================================== */
+
+const signalHistory = [];
+
+export function saveSignal(result) {
+
+    if (!result || !result.signal) {
+        return;
+    }
+
+    signalHistory.push(result);
+
+    // Keep the latest 200 signals
+
+    if (signalHistory.length > 200) {
+
+        signalHistory.shift();
+
+    }
+
+}
+
+
+export function getSignalHistory() {
+
+    return [...signalHistory];
+
+}
+
+
+/* =====================================================
+   SIGNAL ENGINE SETTINGS
+===================================================== */
+
+export function getSignalSettings() {
+
+    return {
+
+        ...SETTINGS
+
+    };
+
+}
+
+
+/* =====================================================
+   RESET SIGNAL HISTORY
+===================================================== */
+
+export function clearSignalHistory() {
+
+    signalHistory.length = 0;
+
+}
