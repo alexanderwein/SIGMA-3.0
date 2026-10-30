@@ -2,7 +2,7 @@
 /*
 =========================================================
  SIGMA 3.0 — INTERACTIVE CHART ENGINE
- PART 1: SETUP AND CONFIGURATION
+ PART 1: SETUP, CONFIGURATION AND HELPERS
 =========================================================
 */
 
@@ -29,10 +29,16 @@ let macdSignalSeries = null;
 let macdHistogramSeries = null;
 
 let currentChartType = "candles";
+
 let currentCandles = [];
+
 let currentIndicators = null;
 
+let currentForecastPoints = [];
+
 let resizeObserver = null;
+
+let resizeFallbackActive = false;
 
 
 /* =====================================================
@@ -41,7 +47,10 @@ let resizeObserver = null;
 
 function getLibrary() {
 
-    if (!window.LightweightCharts) {
+    if (
+        typeof window === "undefined" ||
+        !window.LightweightCharts
+    ) {
 
         throw new Error(
             "Lightweight Charts library not loaded."
@@ -49,7 +58,40 @@ function getLibrary() {
 
     }
 
-    return window.LightweightCharts;
+    const library = window.LightweightCharts;
+
+    if (
+        typeof library.createChart !== "function"
+    ) {
+
+        throw new Error(
+            "Invalid Lightweight Charts library."
+        );
+
+    }
+
+    return library;
+
+}
+
+
+/* =====================================================
+   CONTAINER VALIDATION
+===================================================== */
+
+function getContainer(id) {
+
+    const container = document.getElementById(id);
+
+    if (!container) {
+
+        throw new Error(
+            `${id} chart container not found.`
+        );
+
+    }
+
+    return container;
 
 }
 
@@ -62,15 +104,24 @@ function commonOptions(container) {
 
     return {
 
-        width: container.clientWidth,
+        width: Math.max(
+            1,
+            container.clientWidth
+        ),
 
-        height: container.clientHeight,
+        height: Math.max(
+            1,
+            container.clientHeight
+        ),
 
         layout: {
 
             background: {
+
                 type: "solid",
+
                 color: CONFIG.CHART.BACKGROUND
+
             },
 
             textColor: CONFIG.CHART.TEXT_COLOR,
@@ -84,11 +135,15 @@ function commonOptions(container) {
         grid: {
 
             vertLines: {
+
                 color: CONFIG.CHART.GRID_COLOR
+
             },
 
             horzLines: {
+
                 color: CONFIG.CHART.GRID_COLOR
+
             }
 
         },
@@ -98,17 +153,27 @@ function commonOptions(container) {
             mode: 0,
 
             vertLine: {
+
                 color: CONFIG.CHART.CROSSHAIR_COLOR,
+
                 width: 1,
+
                 style: 2,
+
                 labelBackgroundColor: "#24364d"
+
             },
 
             horzLine: {
+
                 color: CONFIG.CHART.CROSSHAIR_COLOR,
+
                 width: 1,
+
                 style: 2,
+
                 labelBackgroundColor: "#24364d"
+
             }
 
         },
@@ -118,8 +183,11 @@ function commonOptions(container) {
             borderColor: CONFIG.CHART.GRID_COLOR,
 
             scaleMargins: {
+
                 top: 0.08,
+
                 bottom: 0.12
+
             }
 
         },
@@ -168,7 +236,7 @@ function commonOptions(container) {
 
 
 /* =====================================================
-   FORMAT HELPERS
+   NUMBER FORMATTING
 ===================================================== */
 
 function formatNumber(value) {
@@ -183,41 +251,294 @@ function formatNumber(value) {
 
     }
 
-    return Number(value).toLocaleString("en-US", {
-
-        maximumFractionDigits: 8
-
-    });
+    return Number(value).toLocaleString(
+        "en-US",
+        {
+            maximumFractionDigits: 8
+        }
+    );
 
 }
 
 
+/* =====================================================
+   TIME NORMALIZATION
+===================================================== */
+
+function normalizeTime(time) {
+
+    if (Number.isFinite(time)) {
+
+        return Math.floor(time);
+
+    }
+
+    if (
+        time &&
+        typeof time === "object" &&
+        Number.isInteger(time.year) &&
+        Number.isInteger(time.month) &&
+        Number.isInteger(time.day)
+    ) {
+
+        return {
+
+            year: time.year,
+
+            month: time.month,
+
+            day: time.day
+
+        };
+
+    }
+
+    return null;
+
+}
+
+
+/* =====================================================
+   TIME FORMATTING
+===================================================== */
+
 function formatTime(time) {
 
-    let date;
+    if (Number.isFinite(time)) {
 
-    if (typeof time === "number") {
+        const milliseconds = time * 1000;
 
-        date = new Date(time * 1000);
+        const date = new Date(milliseconds);
 
-    } else if (time && typeof time === "object") {
+        if (!Number.isFinite(date.getTime())) {
 
-        date = new Date(
+            return "—";
+
+        }
+
+        return date.toLocaleString();
+
+    }
+
+    if (
+        time &&
+        typeof time === "object"
+    ) {
+
+        const date = new Date(
             time.year,
             time.month - 1,
             time.day
         );
 
-    } else {
+        if (!Number.isFinite(date.getTime())) {
 
-        return "—";
+            return "—";
+
+        }
+
+        return date.toLocaleDateString();
 
     }
 
-    return date.toLocaleString();
+    return "—";
 
 }
 
+
+/* =====================================================
+   VALIDATE CHART CANDLES
+===================================================== */
+
+function validateChartCandles(candles) {
+
+    if (
+        !Array.isArray(candles) ||
+        candles.length < 2
+    ) {
+
+        throw new Error(
+            "Insufficient chart data."
+        );
+
+    }
+
+    let previousTime = -Infinity;
+
+    for (const candle of candles) {
+
+        if (!candle || typeof candle !== "object") {
+
+            throw new Error(
+                "Invalid chart candle."
+            );
+
+        }
+
+        const time = candle.time;
+
+        const validTime = Number.isFinite(time) &&
+            time > previousTime;
+
+        if (
+            !validTime ||
+            !Number.isFinite(candle.open) ||
+            !Number.isFinite(candle.high) ||
+            !Number.isFinite(candle.low) ||
+            !Number.isFinite(candle.close) ||
+            candle.low <= 0 ||
+            candle.high < candle.low ||
+            candle.open < candle.low ||
+            candle.open > candle.high ||
+            candle.close < candle.low ||
+            candle.close > candle.high
+        ) {
+
+            throw new Error(
+                "Invalid or unordered chart candle."
+            );
+
+        }
+
+        if (
+            candle.volume !== undefined &&
+            (
+                !Number.isFinite(candle.volume) ||
+                candle.volume < 0
+            )
+        ) {
+
+            throw new Error(
+                "Invalid chart volume."
+            );
+
+        }
+
+        previousTime = time;
+
+    }
+
+    return true;
+
+}
+
+
+/* =====================================================
+   VALIDATE INDICATOR ARRAY
+===================================================== */
+
+function getIndicatorValues(indicators, name) {
+
+    const values = indicators?.[name];
+
+    if (!Array.isArray(values)) {
+
+        return [];
+
+    }
+
+    return values;
+
+}
+
+
+/* =====================================================
+   CONVERT INDICATOR DATA
+===================================================== */
+
+function indicatorData(candles, values) {
+
+    if (
+        !Array.isArray(candles) ||
+        !Array.isArray(values)
+    ) {
+
+        return [];
+
+    }
+
+    const length = Math.min(
+        candles.length,
+        values.length
+    );
+
+    const result = [];
+
+    for (let i = 0; i < length; i++) {
+
+        const time = normalizeTime(
+            candles[i].time
+        );
+
+        const value = values[i];
+
+        if (
+            time === null ||
+            !Number.isFinite(value)
+        ) {
+
+            continue;
+
+        }
+
+        result.push({
+
+            time,
+
+            value
+
+        });
+
+    }
+
+    return result;
+
+}
+
+
+/* =====================================================
+   VALIDATE FORECAST POINTS
+===================================================== */
+
+function validateForecastPoints(points) {
+
+    if (!Array.isArray(points)) {
+
+        return [];
+
+    }
+
+    const valid = points
+
+        .filter(point =>
+
+            point &&
+            Number.isFinite(point.time) &&
+            Number.isFinite(point.value) &&
+            point.time > 0 &&
+            point.value > 0
+
+        )
+
+        .map(point => ({
+
+            time: Math.floor(point.time),
+
+            value: point.value
+
+        }));
+
+    valid.sort(
+        (a, b) => a.time - b.time
+    );
+
+    return valid.filter(
+        (point, index) =>
+            index === 0 ||
+            point.time > valid[index - 1].time
+    );
+
+}
 
 /* =====================================================
    CROSSHAIR INFORMATION PANEL
