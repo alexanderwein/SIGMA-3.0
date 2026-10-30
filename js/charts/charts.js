@@ -168,6 +168,58 @@ function commonOptions(container) {
 
 
 /* =====================================================
+   FORMAT HELPERS
+===================================================== */
+
+function formatNumber(value) {
+
+    if (
+        value === null ||
+        value === undefined ||
+        !Number.isFinite(Number(value))
+    ) {
+
+        return "—";
+
+    }
+
+    return Number(value).toLocaleString("en-US", {
+
+        maximumFractionDigits: 8
+
+    });
+
+}
+
+
+function formatTime(time) {
+
+    let date;
+
+    if (typeof time === "number") {
+
+        date = new Date(time * 1000);
+
+    } else if (time && typeof time === "object") {
+
+        date = new Date(
+            time.year,
+            time.month - 1,
+            time.day
+        );
+
+    } else {
+
+        return "—";
+
+    }
+
+    return date.toLocaleString();
+
+}
+
+
+/* =====================================================
    CROSSHAIR INFORMATION PANEL
 ===================================================== */
 
@@ -224,58 +276,6 @@ function createCrosshairPanel(container) {
 
 }
 
-
-/* =====================================================
-   FORMAT HELPERS
-===================================================== */
-
-function formatNumber(value) {
-
-    if (
-        value === null ||
-        value === undefined ||
-        !Number.isFinite(Number(value))
-    ) {
-
-        return "—";
-
-    }
-
-    return Number(value).toLocaleString("en-US", {
-
-        maximumFractionDigits: 8
-
-    });
-
-}
-
-
-function formatTime(time) {
-
-    let date;
-
-    if (typeof time === "number") {
-
-        date = new Date(time * 1000);
-
-    } else if (time && typeof time === "object") {
-
-        date = new Date(
-            time.year,
-            time.month - 1,
-            time.day
-        );
-
-    } else {
-
-        return "—";
-
-    }
-
-    return date.toLocaleString();
-
-}
-
 /* =====================================================
    CROSSHAIR DETAILS
 ===================================================== */
@@ -291,7 +291,15 @@ function subscribePriceCrosshair(container) {
             !param.time ||
             !param.seriesData
         ) {
+
+            panel.innerHTML = `
+                <div style="color:#91a4bd">
+                    MOVE CURSOR OVER CHART
+                </div>
+            `;
+
             return;
+
         }
 
         const candle = candleSeries
@@ -321,7 +329,10 @@ function subscribePriceCrosshair(container) {
         const open = candle ? candle.open : null;
         const high = candle ? candle.high : null;
         const low = candle ? candle.low : null;
-        const close = candle ? candle.close : line.value;
+
+        const close = candle
+            ? candle.close
+            : line.value;
 
         const direction = candle
             ? candle.close >= candle.open
@@ -332,6 +343,7 @@ function subscribePriceCrosshair(container) {
             : CONFIG.CHART.CANDLE_DOWN;
 
         panel.innerHTML = `
+
             <div style="color:#91a4bd;margin-bottom:5px">
                 ${formatTime(param.time)}
             </div>
@@ -343,14 +355,31 @@ function subscribePriceCrosshair(container) {
             </div>
 
             ${candle ? `
-                <div>OPEN: <b>${formatNumber(open)}</b></div>
-                <div>HIGH: <b>${formatNumber(high)}</b></div>
-                <div>LOW: <b>${formatNumber(low)}</b></div>
-                <div>CLOSE: <b style="color:${color}">
-                    ${formatNumber(close)}
-                </b></div>
+
+                <div>OPEN:
+                    <b>${formatNumber(open)}</b>
+                </div>
+
+                <div>HIGH:
+                    <b>${formatNumber(high)}</b>
+                </div>
+
+                <div>LOW:
+                    <b>${formatNumber(low)}</b>
+                </div>
+
+                <div>CLOSE:
+                    <b style="color:${color}">
+                        ${formatNumber(close)}
+                    </b>
+                </div>
+
             ` : `
-                <div>PRICE: <b>${formatNumber(close)}</b></div>
+
+                <div>PRICE:
+                    <b>${formatNumber(close)}</b>
+                </div>
+
             `}
 
             <div style="color:${CONFIG.CHART.EMA_20}">
@@ -364,6 +393,7 @@ function subscribePriceCrosshair(container) {
             <div style="color:#91a4bd">
                 VOLUME: ${formatNumber(volume?.value)}
             </div>
+
         `;
 
     });
@@ -382,7 +412,11 @@ function initializePriceChart() {
     const container = document.getElementById("priceChart");
 
     if (!container) {
-        throw new Error("Price chart container not found.");
+
+        throw new Error(
+            "Price chart container not found."
+        );
+
     }
 
     priceChart = library.createChart(
@@ -405,16 +439,22 @@ function initializePriceChart() {
 
 function initializePriceSeries() {
 
-    const library = getLibrary();
+    if (!priceChart) return;
 
     if (candleSeries) {
+
         priceChart.removeSeries(candleSeries);
+
         candleSeries = null;
+
     }
 
     if (lineSeries) {
+
         priceChart.removeSeries(lineSeries);
+
         lineSeries = null;
+
     }
 
     if (currentChartType === "candles") {
@@ -536,7 +576,11 @@ function initializeRSIChart() {
     const container = document.getElementById("rsiChart");
 
     if (!container) {
-        throw new Error("RSI chart container not found.");
+
+        throw new Error(
+            "RSI chart container not found."
+        );
+
     }
 
     rsiChart = library.createChart(
@@ -605,7 +649,11 @@ function initializeMACDChart() {
     const container = document.getElementById("macdChart");
 
     if (!container) {
-        throw new Error("MACD chart container not found.");
+
+        throw new Error(
+            "MACD chart container not found."
+        );
+
     }
 
     macdChart = library.createChart(
@@ -643,7 +691,6 @@ function initializeMACDChart() {
 
 }
 
-
 /* =====================================================
    INITIALIZE ALL CHARTS
 ===================================================== */
@@ -670,13 +717,21 @@ export function initializeCharts() {
 
 }
 
+
 /* =====================================================
    CONVERT INDICATORS TO CHART DATA
 ===================================================== */
 
 function indicatorData(candles, values) {
 
-    if (!Array.isArray(values)) return [];
+    if (
+        !Array.isArray(candles) ||
+        !Array.isArray(values)
+    ) {
+
+        return [];
+
+    }
 
     return candles
 
@@ -688,7 +743,13 @@ function indicatorData(candles, values) {
 
         }))
 
-        .filter(item => Number.isFinite(item.value));
+        .filter(item =>
+
+            item.time !== undefined &&
+
+            Number.isFinite(item.value)
+
+        );
 
 }
 
@@ -698,6 +759,8 @@ function indicatorData(candles, values) {
 ===================================================== */
 
 function updatePriceChart(candles, indicators) {
+
+    if (!priceChart) return;
 
     if (currentChartType === "candles") {
 
@@ -738,11 +801,8 @@ function updatePriceChart(candles, indicators) {
     ema20Series.setData(
 
         indicatorData(
-
             candles,
-
             indicators?.ema20
-
         )
 
     );
@@ -750,11 +810,8 @@ function updatePriceChart(candles, indicators) {
     ema50Series.setData(
 
         indicatorData(
-
             candles,
-
             indicators?.ema50
-
         )
 
     );
@@ -765,7 +822,9 @@ function updatePriceChart(candles, indicators) {
 
             time: candle.time,
 
-            value: candle.volume,
+            value: Number.isFinite(candle.volume)
+                ? candle.volume
+                : 0,
 
             color: candle.close >= candle.open
 
@@ -801,27 +860,28 @@ Time must be UNIX seconds.
 
 export function updateForecastChart(points) {
 
-    if (!forecastSeries || !Array.isArray(points)) {
+    if (
+        !forecastSeries ||
+        !Array.isArray(points)
+    ) {
 
         return;
 
     }
 
-    forecastSeries.setData(
+    const validPoints = points
 
-        points
+        .filter(point =>
 
-            .filter(point =>
+            Number.isFinite(point.time) &&
 
-                Number.isFinite(point.time) &&
+            Number.isFinite(point.value)
 
-                Number.isFinite(point.value)
+        )
 
-            )
+        .sort((a, b) => a.time - b.time);
 
-            .sort((a, b) => a.time - b.time)
-
-    );
+    forecastSeries.setData(validPoints);
 
 }
 
@@ -832,17 +892,18 @@ export function updateForecastChart(points) {
 
 function updateRSIChart(candles, indicators) {
 
+    if (!rsiChart) return;
+
     rsiSeries.setData(
 
         indicatorData(
-
             candles,
-
             indicators?.rsi
-
         )
 
     );
+
+    if (!candles.length) return;
 
     const first = candles[0].time;
 
@@ -875,14 +936,13 @@ function updateRSIChart(candles, indicators) {
 
 function updateMACDChart(candles, indicators) {
 
+    if (!macdChart) return;
+
     macdLineSeries.setData(
 
         indicatorData(
-
             candles,
-
             indicators?.macd
-
         )
 
     );
@@ -890,18 +950,16 @@ function updateMACDChart(candles, indicators) {
     macdSignalSeries.setData(
 
         indicatorData(
-
             candles,
-
             indicators?.macdSignal
-
         )
 
     );
 
     const histogram = candles.map((candle, index) => {
 
-        const value = indicators?.macdHistogram?.[index];
+        const value =
+            indicators?.macdHistogram?.[index];
 
         if (!Number.isFinite(value)) {
 
@@ -946,15 +1004,15 @@ export function updateCharts(
 
 ) {
 
-    if (!priceChart || !rsiChart || !macdChart) {
-
-        initializeCharts();
-
-    }
-
     if (!Array.isArray(candles) || candles.length < 2) {
 
         throw new Error("Insufficient chart data.");
+
+    }
+
+    if (!priceChart || !rsiChart || !macdChart) {
+
+        initializeCharts();
 
     }
 
@@ -968,7 +1026,7 @@ export function updateCharts(
 
     updateMACDChart(candles, indicators);
 
-    if (forecastPoints.length) {
+    if (Array.isArray(forecastPoints) && forecastPoints.length) {
 
         updateForecastChart(forecastPoints);
 
@@ -983,11 +1041,15 @@ export function updateCharts(
 export function setChartType(type) {
 
     if (!["candles", "line"].includes(type)) {
+
         return;
+
     }
 
     if (currentChartType === type) {
+
         return;
+
     }
 
     currentChartType = type;
@@ -1024,15 +1086,21 @@ export function setChartType(type) {
 export function resetCharts() {
 
     if (priceChart) {
+
         priceChart.timeScale().fitContent();
+
     }
 
     if (rsiChart) {
+
         rsiChart.timeScale().fitContent();
+
     }
 
     if (macdChart) {
+
         macdChart.timeScale().fitContent();
+
     }
 
 }
@@ -1054,7 +1122,8 @@ function setupChartControls() {
 
     });
 
-    const resetButton = document.getElementById("resetChart");
+    const resetButton =
+        document.getElementById("resetChart");
 
     if (resetButton) {
 
@@ -1074,6 +1143,17 @@ function setupChartResize() {
     if (resizeObserver) {
 
         resizeObserver.disconnect();
+
+    }
+
+    if (typeof ResizeObserver === "undefined") {
+
+        window.addEventListener(
+            "resize",
+            resizeCharts
+        );
+
+        return;
 
     }
 
@@ -1104,12 +1184,18 @@ function setupChartResize() {
 }
 
 
+/* =====================================================
+   RESIZE ALL CHARTS
+===================================================== */
+
 function resizeCharts() {
 
     const charts = [
 
         ["priceChart", priceChart],
+
         ["rsiChart", rsiChart],
+
         ["macdChart", macdChart]
 
     ];
@@ -1152,7 +1238,9 @@ export function destroyCharts() {
     [
 
         priceChart,
+
         rsiChart,
+
         macdChart
 
     ].forEach(chart => {
@@ -1166,24 +1254,38 @@ export function destroyCharts() {
     });
 
     priceChart = null;
+
     rsiChart = null;
+
     macdChart = null;
 
     candleSeries = null;
+
     lineSeries = null;
 
     ema20Series = null;
+
     ema50Series = null;
+
     volumeSeries = null;
+
     forecastSeries = null;
 
     rsiSeries = null;
+
     rsiUpperSeries = null;
+
     rsiLowerSeries = null;
 
     macdLineSeries = null;
+
     macdSignalSeries = null;
+
     macdHistogramSeries = null;
+
+    currentCandles = [];
+
+    currentIndicators = null;
 
 }
 
@@ -1199,7 +1301,9 @@ export function getChartStatus() {
         initialized: Boolean(
 
             priceChart &&
+
             rsiChart &&
+
             macdChart
 
         ),
