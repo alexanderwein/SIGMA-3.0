@@ -2,45 +2,50 @@
 /*
 =========================================================
  SIGMA 3.0 — TECHNICAL INDICATOR ENGINE
-=========================================================
-
-Indicators:
-- EMA
-- SMA
-- RSI (Wilder)
-- MACD
-- ATR (Wilder)
-- ADX / DI+ / DI-
-- Bollinger Bands
-- Stochastic RSI
-- VWAP
-- OBV
-
-All calculations use historical OHLCV candle data.
-
+ PART 1: VALIDATION AND CORE INDICATORS
 =========================================================
 */
 
+const INDICATOR_SETTINGS = {
+    RSI_PERIOD: 14,
+    ATR_PERIOD: 14,
+    ADX_PERIOD: 14,
+    MACD_FAST: 12,
+    MACD_SLOW: 26,
+    MACD_SIGNAL: 9,
+    BOLLINGER_PERIOD: 20,
+    STOCHASTIC_PERIOD: 14
+};
+
 
 /* =====================================================
-   VALIDATION
+   ARRAY VALIDATION
 ===================================================== */
 
 function validateArray(values) {
 
-    if (!Array.isArray(values) || values.length === 0) {
+    if (
+        !Array.isArray(values) ||
+        values.length === 0
+    ) {
         throw new Error("Invalid indicator input.");
     }
 
     if (!values.every(Number.isFinite)) {
+
         throw new Error(
             "Indicator input contains invalid values."
         );
+
     }
 
     return true;
 }
 
+
+/* =====================================================
+   PERIOD VALIDATION
+===================================================== */
 
 function validatePeriod(period, name = "period") {
 
@@ -48,7 +53,11 @@ function validatePeriod(period, name = "period") {
         !Number.isInteger(period) ||
         period < 1
     ) {
-        throw new Error(`Invalid ${name}.`);
+
+        throw new Error(
+            `Invalid ${name}.`
+        );
+
     }
 
     return true;
@@ -61,16 +70,30 @@ function validatePeriod(period, name = "period") {
 
 export function validateCandles(candles) {
 
-    if (!Array.isArray(candles) || candles.length === 0) {
-        throw new Error("Invalid candle data.");
+    if (
+        !Array.isArray(candles) ||
+        candles.length === 0
+    ) {
+
+        throw new Error(
+            "Invalid candle data."
+        );
+
     }
 
     let previousTime = -Infinity;
 
     for (const candle of candles) {
 
-        if (!candle || typeof candle !== "object") {
-            throw new Error("Invalid candle object.");
+        if (
+            !candle ||
+            typeof candle !== "object"
+        ) {
+
+            throw new Error(
+                "Invalid candle object."
+            );
+
         }
 
         const values = [
@@ -83,13 +106,16 @@ export function validateCandles(candles) {
         ];
 
         if (!values.every(Number.isFinite)) {
+
             throw new Error(
                 "Invalid OHLCV candle values."
             );
+
         }
 
         if (
             candle.time <= previousTime ||
+            candle.time <= 0 ||
             candle.low <= 0 ||
             candle.high < candle.low ||
             candle.open < candle.low ||
@@ -98,9 +124,11 @@ export function validateCandles(candles) {
             candle.close > candle.high ||
             candle.volume < 0
         ) {
+
             throw new Error(
                 "Inconsistent OHLCV candle."
             );
+
         }
 
         previousTime = candle.time;
@@ -121,7 +149,11 @@ export function sma(values, period) {
     validatePeriod(period);
 
     if (period > values.length) {
-        throw new Error("Invalid SMA period.");
+
+        throw new Error(
+            "Insufficient data for SMA calculation."
+        );
+
     }
 
     const result = Array(values.length).fill(null);
@@ -133,11 +165,15 @@ export function sma(values, period) {
         sum += values[i];
 
         if (i >= period) {
+
             sum -= values[i - period];
+
         }
 
         if (i >= period - 1) {
+
             result[i] = sum / period;
+
         }
 
     }
@@ -156,7 +192,11 @@ export function ema(values, period) {
     validatePeriod(period);
 
     if (period > values.length) {
-        throw new Error("Invalid EMA period.");
+
+        throw new Error(
+            "Insufficient data for EMA calculation."
+        );
+
     }
 
     const result = Array(values.length).fill(null);
@@ -166,14 +206,20 @@ export function ema(values, period) {
     let initial = 0;
 
     for (let i = 0; i < period; i++) {
+
         initial += values[i];
+
     }
 
     let previous = initial / period;
 
     result[period - 1] = previous;
 
-    for (let i = period; i < values.length; i++) {
+    for (
+        let i = period;
+        i < values.length;
+        i++
+    ) {
 
         previous =
             values[i] * multiplier +
@@ -199,26 +245,35 @@ function wilderAverage(values, period) {
     const result = Array(values.length).fill(null);
 
     if (values.length < period) {
+
         return result;
+
     }
 
     let initial = 0;
 
     for (let i = 0; i < period; i++) {
+
         initial += values[i];
+
     }
 
     let previous = initial / period;
 
     result[period - 1] = previous;
 
-    for (let i = period; i < values.length; i++) {
+    for (
+        let i = period;
+        i < values.length;
+        i++
+    ) {
 
-        previous =
-            (
-                previous * (period - 1) +
-                values[i]
-            ) / period;
+        previous = (
+
+            previous * (period - 1) +
+            values[i]
+
+        ) / period;
 
         result[i] = previous;
 
@@ -232,15 +287,20 @@ function wilderAverage(values, period) {
    RELATIVE STRENGTH INDEX — WILDER
 ===================================================== */
 
-export function rsi(values, period = 14) {
+export function rsi(
+    values,
+    period = INDICATOR_SETTINGS.RSI_PERIOD
+) {
 
     validateArray(values);
-    validatePeriod(period);
+    validatePeriod(period, "RSI period");
 
     const result = Array(values.length).fill(null);
 
     if (values.length <= period) {
+
         return result;
+
     }
 
     const gains = [];
@@ -248,24 +308,45 @@ export function rsi(values, period = 14) {
 
     for (let i = 1; i < values.length; i++) {
 
-        const change = values[i] - values[i - 1];
+        const change =
+            values[i] - values[i - 1];
 
-        gains.push(Math.max(change, 0));
+        gains.push(
+            Math.max(change, 0)
+        );
 
-        losses.push(Math.max(-change, 0));
+        losses.push(
+            Math.max(-change, 0)
+        );
 
     }
 
-    const avgGain = wilderAverage(gains, period);
-    const avgLoss = wilderAverage(losses, period);
+    const averageGain = wilderAverage(
+        gains,
+        period
+    );
 
-    for (let i = period; i < values.length; i++) {
+    const averageLoss = wilderAverage(
+        losses,
+        period
+    );
 
-        const gain = avgGain[i - 1];
-        const loss = avgLoss[i - 1];
+    for (
+        let i = period;
+        i < values.length;
+        i++
+    ) {
 
-        if (gain === null || loss === null) {
+        const gain = averageGain[i - 1];
+        const loss = averageLoss[i - 1];
+
+        if (
+            gain === null ||
+            loss === null
+        ) {
+
             continue;
+
         }
 
         if (loss === 0) {
@@ -274,9 +355,10 @@ export function rsi(values, period = 14) {
 
         } else {
 
-            const rs = gain / loss;
+            const relativeStrength = gain / loss;
 
-            result[i] = 100 - (100 / (1 + rs));
+            result[i] =
+                100 - (100 / (1 + relativeStrength));
 
         }
 
@@ -291,53 +373,74 @@ export function rsi(values, period = 14) {
 
 export function macd(
     values,
-    fast = 12,
-    slow = 26,
-    signalPeriod = 9
+    fast = INDICATOR_SETTINGS.MACD_FAST,
+    slow = INDICATOR_SETTINGS.MACD_SLOW,
+    signalPeriod = INDICATOR_SETTINGS.MACD_SIGNAL
 ) {
 
     validateArray(values);
 
-    validatePeriod(fast, "fast period");
-    validatePeriod(slow, "slow period");
-    validatePeriod(signalPeriod, "signal period");
+    validatePeriod(fast, "MACD fast period");
+    validatePeriod(slow, "MACD slow period");
+    validatePeriod(signalPeriod, "MACD signal period");
 
-    if (
-        fast >= slow ||
-        slow > values.length
-    ) {
-        throw new Error("Invalid MACD parameters.");
+    if (fast >= slow) {
+
+        throw new Error(
+            "MACD fast period must be smaller than slow period."
+        );
+
+    }
+
+    const line = Array(values.length).fill(null);
+    const signal = Array(values.length).fill(null);
+    const histogram = Array(values.length).fill(null);
+
+    if (values.length < slow + signalPeriod - 1) {
+
+        return {
+            line,
+            signal,
+            histogram
+        };
+
     }
 
     const fastEMA = ema(values, fast);
     const slowEMA = ema(values, slow);
 
-    const line = Array(values.length).fill(null);
+    const firstValid = slow - 1;
 
-    for (let i = slow - 1; i < values.length; i++) {
+    for (
+        let i = firstValid;
+        i < values.length;
+        i++
+    ) {
 
         line[i] = fastEMA[i] - slowEMA[i];
 
     }
 
-    const firstValid = slow - 1;
+    const compactLine = line.slice(firstValid);
 
-    const compact = line.slice(firstValid);
+    const compactSignal = ema(
+        compactLine,
+        signalPeriod
+    );
 
-    const compactEMA = ema(compact, signalPeriod);
+    for (
+        let i = 0;
+        i < compactSignal.length;
+        i++
+    ) {
 
-    const signal = Array(values.length).fill(null);
-    const histogram = Array(values.length).fill(null);
-
-    for (let i = 0; i < compactEMA.length; i++) {
-
-        const index = firstValid + i;
-
-        if (compactEMA[i] === null) {
+        if (compactSignal[i] === null) {
             continue;
         }
 
-        signal[index] = compactEMA[i];
+        const index = firstValid + i;
+
+        signal[index] = compactSignal[i];
 
         histogram[index] =
             line[index] - signal[index];
@@ -349,6 +452,7 @@ export function macd(
         signal,
         histogram
     };
+
 }
 
 
@@ -360,13 +464,15 @@ export function trueRange(candles) {
 
     validateCandles(candles);
 
-    return candles.map((candle, i) => {
+    return candles.map((candle, index) => {
 
-        if (i === 0) {
+        if (index === 0) {
+
             return candle.high - candle.low;
+
         }
 
-        const previous = candles[i - 1];
+        const previous = candles[index - 1];
 
         return Math.max(
 
@@ -383,6 +489,7 @@ export function trueRange(candles) {
         );
 
     });
+
 }
 
 
@@ -390,14 +497,22 @@ export function trueRange(candles) {
    AVERAGE TRUE RANGE — WILDER
 ===================================================== */
 
-export function atr(candles, period = 14) {
+export function atr(
+    candles,
+    period = INDICATOR_SETTINGS.ATR_PERIOD
+) {
 
     validateCandles(candles);
+
     validatePeriod(period, "ATR period");
 
     const ranges = trueRange(candles);
 
-    return wilderAverage(ranges, period);
+    return wilderAverage(
+        ranges,
+        period
+    );
+
 }
 
 
@@ -405,94 +520,136 @@ export function atr(candles, period = 14) {
    AVERAGE DIRECTIONAL INDEX — ADX
 ===================================================== */
 
-export function adx(candles, period = 14) {
+export function adx(
+    candles,
+    period = INDICATOR_SETTINGS.ADX_PERIOD
+) {
 
     validateCandles(candles);
+
     validatePeriod(period, "ADX period");
 
     const length = candles.length;
 
     const result = {
+
         adx: Array(length).fill(null),
+
         plusDI: Array(length).fill(null),
+
         minusDI: Array(length).fill(null)
+
     };
 
     if (length < period * 2) {
+
         return result;
+
     }
 
     const plusDM = Array(length).fill(0);
-    const minusDM = Array(length).fill(0);
 
-    const ranges = trueRange(candles);
+    const minusDM = Array(length).fill(0);
 
     for (let i = 1; i < length; i++) {
 
-        const up =
-            candles[i].high -
-            candles[i - 1].high;
+        const current = candles[i];
 
-        const down =
-            candles[i - 1].low -
-            candles[i].low;
+        const previous = candles[i - 1];
 
-        if (up > down && up > 0) {
-            plusDM[i] = up;
+        const upwardMove =
+            current.high - previous.high;
+
+        const downwardMove =
+            previous.low - current.low;
+
+        if (
+            upwardMove > downwardMove &&
+            upwardMove > 0
+        ) {
+
+            plusDM[i] = upwardMove;
+
         }
 
-        if (down > up && down > 0) {
-            minusDM[i] = down;
+        if (
+            downwardMove > upwardMove &&
+            downwardMove > 0
+        ) {
+
+            minusDM[i] = downwardMove;
+
         }
 
     }
 
-    const smoothedTR =
-        wilderAverage(ranges, period);
+    const ranges = trueRange(candles);
 
-    const smoothedPlus =
-        wilderAverage(plusDM, period);
+    const smoothedTR = wilderAverage(
+        ranges,
+        period
+    );
 
-    const smoothedMinus =
-        wilderAverage(minusDM, period);
+    const smoothedPlusDM = wilderAverage(
+        plusDM,
+        period
+    );
+
+    const smoothedMinusDM = wilderAverage(
+        minusDM,
+        period
+    );
 
     const dx = Array(length).fill(null);
 
-    for (let i = period - 1; i < length; i++) {
+    for (
+        let i = period - 1;
+        i < length;
+        i++
+    ) {
 
         const tr = smoothedTR[i];
 
-        if (tr === null || tr <= 0) {
+        if (
+            tr === null ||
+            tr <= 0
+        ) {
+
             continue;
+
         }
 
         const plusDI =
-            100 * smoothedPlus[i] / tr;
+            100 * smoothedPlusDM[i] / tr;
 
         const minusDI =
-            100 * smoothedMinus[i] / tr;
+            100 * smoothedMinusDM[i] / tr;
 
         result.plusDI[i] = plusDI;
+
         result.minusDI[i] = minusDI;
 
-        const total = plusDI + minusDI;
+        const totalDI = plusDI + minusDI;
 
-        dx[i] = total === 0
+        dx[i] = totalDI === 0
 
             ? 0
 
             : 100 * Math.abs(
                 plusDI - minusDI
-            ) / total;
+            ) / totalDI;
 
     }
 
-    // First ADX is the average of the first
-    // complete period of valid DX values.
+    /*
+       Initialize ADX using the first complete
+       period of valid DX values.
+    */
 
     const firstADXIndex = period * 2 - 2;
 
     let initialSum = 0;
+
     let validCount = 0;
 
     for (
@@ -504,42 +661,54 @@ export function adx(candles, period = 14) {
         if (dx[i] !== null) {
 
             initialSum += dx[i];
+
             validCount++;
 
         }
 
     }
 
-    if (validCount === period) {
+    if (validCount !== period) {
 
-        let previousADX =
-            initialSum / period;
+        return result;
 
-        result.adx[firstADXIndex] = previousADX;
+    }
 
-        for (
-            let i = firstADXIndex + 1;
-            i < length;
-            i++
-        ) {
+    let previousADX = initialSum / period;
 
-            if (dx[i] === null) {
-                continue;
-            }
+    result.adx[firstADXIndex] = previousADX;
 
-            previousADX = (
-                previousADX * (period - 1) +
-                dx[i]
-            ) / period;
+    /*
+       Wilder recursive smoothing.
+    */
 
-            result.adx[i] = previousADX;
+    for (
+        let i = firstADXIndex + 1;
+        i < length;
+        i++
+    ) {
+
+        if (dx[i] === null) {
+
+            continue;
 
         }
+
+        previousADX = (
+
+            previousADX * (period - 1) +
+            dx[i]
+
+        ) / period;
+
+        result.adx[i] = previousADX;
 
     }
 
     return result;
+
 }
+
 
 /* =====================================================
    BOLLINGER BANDS
@@ -547,47 +716,82 @@ export function adx(candles, period = 14) {
 
 export function bollinger(
     values,
-    period = 20,
+    period = INDICATOR_SETTINGS.BOLLINGER_PERIOD,
     multiplier = 2
 ) {
 
     validateArray(values);
+
     validatePeriod(period, "Bollinger period");
 
     if (
-        period > values.length ||
         !Number.isFinite(multiplier) ||
         multiplier < 0
     ) {
-        throw new Error("Invalid Bollinger parameters.");
+
+        throw new Error(
+            "Invalid Bollinger multiplier."
+        );
+
     }
 
-    const middle = sma(values, period);
+    const middle = Array(values.length).fill(null);
 
     const upper = Array(values.length).fill(null);
+
     const lower = Array(values.length).fill(null);
+
     const deviation = Array(values.length).fill(null);
 
-    for (let i = period - 1; i < values.length; i++) {
+    if (values.length < period) {
 
-        const mean = middle[i];
+        return {
+            middle,
+            upper,
+            lower,
+            deviation
+        };
 
-        let variance = 0;
+    }
 
-        for (
-            let j = i - period + 1;
-            j <= i;
-            j++
-        ) {
+    let sum = 0;
 
-            variance += Math.pow(
-                values[j] - mean,
-                2
-            );
+    let squaredSum = 0;
+
+    for (let i = 0; i < values.length; i++) {
+
+        const value = values[i];
+
+        sum += value;
+
+        squaredSum += value * value;
+
+        if (i >= period) {
+
+            const removed = values[i - period];
+
+            sum -= removed;
+
+            squaredSum -= removed * removed;
 
         }
 
-        const sd = Math.sqrt(variance / period);
+        if (i < period - 1) {
+
+            continue;
+
+        }
+
+        const mean = sum / period;
+
+        const variance = Math.max(
+            0,
+            squaredSum / period - mean * mean
+        );
+
+        const sd = Math.sqrt(variance);
+
+        middle[i] = mean;
 
         deviation[i] = sd;
 
@@ -603,6 +807,7 @@ export function bollinger(
         lower,
         deviation
     };
+
 }
 
 
@@ -612,8 +817,8 @@ export function bollinger(
 
 export function stochasticRSI(
     values,
-    rsiPeriod = 14,
-    stochasticPeriod = 14,
+    rsiPeriod = INDICATOR_SETTINGS.RSI_PERIOD,
+    stochasticPeriod = INDICATOR_SETTINGS.STOCHASTIC_PERIOD,
     kPeriod = 3,
     dPeriod = 3
 ) {
@@ -621,63 +826,88 @@ export function stochasticRSI(
     validateArray(values);
 
     validatePeriod(rsiPeriod, "RSI period");
-    validatePeriod(stochasticPeriod, "stochastic period");
+
+    validatePeriod(
+        stochasticPeriod,
+        "Stochastic period"
+    );
+
     validatePeriod(kPeriod, "K period");
+
     validatePeriod(dPeriod, "D period");
 
-    const rsiValues = rsi(values, rsiPeriod);
+    const rsiValues = rsi(
+        values,
+        rsiPeriod
+    );
 
     const raw = Array(values.length).fill(null);
 
+    const k = Array(values.length).fill(null);
+
+    const d = Array(values.length).fill(null);
+
     for (
-        let i = rsiPeriod + stochasticPeriod - 1;
+        let i = 0;
         i < values.length;
         i++
     ) {
+
+        if (i < rsiPeriod + stochasticPeriod - 1) {
+
+            continue;
+
+        }
 
         const window = rsiValues.slice(
             i - stochasticPeriod + 1,
             i + 1
         );
 
-        if (window.some(value => value === null)) {
+        if (
+            window.some(
+                value => value === null
+            )
+        ) {
+
             continue;
+
         }
 
-        const min = Math.min(...window);
-        const max = Math.max(...window);
+        const minimum = Math.min(...window);
 
-        raw[i] = max === min
+        const maximum = Math.max(...window);
+
+        raw[i] = maximum === minimum
 
             ? 50
 
             : 100 * (
-                (rsiValues[i] - min) /
-                (max - min)
+                (rsiValues[i] - minimum) /
+                (maximum - minimum)
             );
 
     }
 
-    const validStart = raw.findIndex(
-        value => value !== null
-    );
+    /*
+       Smooth raw Stochastic RSI into %K.
+    */
 
-    const k = Array(values.length).fill(null);
-    const d = Array(values.length).fill(null);
+    for (
+        let i = 0;
+        i < values.length;
+        i++
+    ) {
 
-    if (validStart === -1) {
-        return { k, d };
-    }
+        if (i < rsiPeriod + stochasticPeriod + kPeriod - 2) {
 
-    // Smooth only valid Stochastic RSI values.
+            continue;
 
-    const compact = raw.slice(validStart);
-
-    const compactK = Array(compact.length).fill(null);
-
-    for (let i = kPeriod - 1; i < compact.length; i++) {
+        }
 
         let sum = 0;
+
+        let valid = true;
 
         for (
             let j = i - kPeriod + 1;
@@ -685,23 +915,44 @@ export function stochasticRSI(
             j++
         ) {
 
-            sum += compact[j];
+            if (raw[j] === null) {
+
+                valid = false;
+
+                break;
+
+            }
+
+            sum += raw[j];
 
         }
 
-        compactK[i] = sum / kPeriod;
+        if (valid) {
 
-        k[validStart + i] = compactK[i];
+            k[i] = sum / kPeriod;
+
+        }
 
     }
 
+    /*
+       Smooth %K into %D.
+    */
+
     for (
-        let i = kPeriod + dPeriod - 2;
-        i < compact.length;
+        let i = 0;
+        i < values.length;
         i++
     ) {
 
+        if (i < rsiPeriod + stochasticPeriod + kPeriod + dPeriod - 3) {
+
+            continue;
+
+        }
+
         let sum = 0;
+
         let valid = true;
 
         for (
@@ -710,24 +961,31 @@ export function stochasticRSI(
             j++
         ) {
 
-            if (compactK[j] === null) {
+            if (k[j] === null) {
+
                 valid = false;
+
                 break;
+
             }
 
-            sum += compactK[j];
+            sum += k[j];
 
         }
 
         if (valid) {
 
-            d[validStart + i] = sum / dPeriod;
+            d[i] = sum / dPeriod;
 
         }
 
     }
 
-    return { k, d };
+    return {
+        k,
+        d
+    };
+
 }
 
 
@@ -736,7 +994,7 @@ export function stochasticRSI(
 ===================================================== */
 
 /*
-Session VWAP resets each UTC day.
+   Session VWAP resets at UTC midnight.
 */
 
 export function vwap(candles) {
@@ -746,11 +1004,16 @@ export function vwap(candles) {
     const result = Array(candles.length).fill(null);
 
     let cumulativePriceVolume = 0;
+
     let cumulativeVolume = 0;
 
     let currentSession = null;
 
-    for (let i = 0; i < candles.length; i++) {
+    for (
+        let i = 0;
+        i < candles.length;
+        i++
+    ) {
 
         const candle = candles[i];
 
@@ -758,9 +1021,14 @@ export function vwap(candles) {
             candle.time * 1000
         ).toISOString().slice(0, 10);
 
+        /*
+           Reset VWAP at the start of a new UTC day.
+        */
+
         if (session !== currentSession) {
 
             cumulativePriceVolume = 0;
+
             cumulativeVolume = 0;
 
             currentSession = session;
@@ -768,9 +1036,11 @@ export function vwap(candles) {
         }
 
         const typicalPrice = (
+
             candle.high +
             candle.low +
             candle.close
+
         ) / 3;
 
         cumulativePriceVolume +=
@@ -789,6 +1059,7 @@ export function vwap(candles) {
     }
 
     return result;
+
 }
 
 
@@ -802,9 +1073,14 @@ export function obv(candles) {
 
     const result = Array(candles.length).fill(0);
 
-    for (let i = 1; i < candles.length; i++) {
+    for (
+        let i = 1;
+        i < candles.length;
+        i++
+    ) {
 
         const current = candles[i];
+
         const previous = candles[i - 1];
 
         if (current.close > previous.close) {
@@ -826,6 +1102,7 @@ export function obv(candles) {
     }
 
     return result;
+
 }
 
 
@@ -841,13 +1118,51 @@ export function calculateAll(candles) {
         candle => candle.close
     );
 
-    const macdResult = macd(close);
+    /*
+       MACD
+    */
 
-    const adxResult = adx(candles);
+    const macdResult = macd(
+        close,
+        INDICATOR_SETTINGS.MACD_FAST,
+        INDICATOR_SETTINGS.MACD_SLOW,
+        INDICATOR_SETTINGS.MACD_SIGNAL
+    );
 
-    const bands = bollinger(close);
+    /*
+       ADX
+    */
 
-    const stoch = stochasticRSI(close);
+    const adxResult = adx(
+        candles,
+        INDICATOR_SETTINGS.ADX_PERIOD
+    );
+
+    /*
+       Bollinger Bands
+    */
+
+    const bands = bollinger(
+        close,
+        INDICATOR_SETTINGS.BOLLINGER_PERIOD,
+        2
+    );
+
+    /*
+       Stochastic RSI
+    */
+
+    const stochastic = stochasticRSI(
+        close,
+        INDICATOR_SETTINGS.RSI_PERIOD,
+        INDICATOR_SETTINGS.STOCHASTIC_PERIOD,
+        3,
+        3
+    );
+
+    /*
+       Return all indicator arrays.
+    */
 
     return {
 
@@ -857,7 +1172,10 @@ export function calculateAll(candles) {
 
         ema50: ema(close, 50),
 
-        rsi: rsi(close, 14),
+        rsi: rsi(
+            close,
+            INDICATOR_SETTINGS.RSI_PERIOD
+        ),
 
         macd: macdResult.line,
 
@@ -865,7 +1183,10 @@ export function calculateAll(candles) {
 
         macdHistogram: macdResult.histogram,
 
-        atr: atr(candles, 14),
+        atr: atr(
+            candles,
+            INDICATOR_SETTINGS.ATR_PERIOD
+        ),
 
         adx: adxResult.adx,
 
@@ -879,15 +1200,16 @@ export function calculateAll(candles) {
 
         bollingerLower: bands.lower,
 
-        stochasticK: stoch.k,
+        stochasticK: stochastic.k,
 
-        stochasticD: stoch.d,
+        stochasticD: stochastic.d,
 
         vwap: vwap(candles),
 
         obv: obv(candles)
 
     };
+
 }
 
 
@@ -903,11 +1225,15 @@ export function getLatestIndicators(candles) {
 
     const snapshot = {};
 
-    for (const [name, values] of Object.entries(analysis)) {
+    for (
+        const [name, values]
+        of Object.entries(analysis)
+    ) {
 
         snapshot[name] = values[last];
 
     }
 
     return snapshot;
+
 }
