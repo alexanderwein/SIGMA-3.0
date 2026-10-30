@@ -2,6 +2,7 @@
 /*
 =========================================================
  SIGMA 3.0 — BINANCE MARKET DATA ENGINE
+ CORRECTED VERSION
 =========================================================
 
 Responsibilities:
@@ -15,12 +16,10 @@ Responsibilities:
 
 Public Binance API only.
 No trading or account permissions required.
-
 =========================================================
 */
 
 import { CONFIG, apiURL } from "../config.js";
-
 
 const API = CONFIG.API.ENDPOINTS;
 
@@ -30,6 +29,10 @@ const API = CONFIG.API.ENDPOINTS;
 ===================================================== */
 
 async function request(url) {
+
+    if (typeof url !== "string" || !url) {
+        throw new Error("Invalid Binance API URL.");
+    }
 
     const controller = new AbortController();
 
@@ -54,25 +57,36 @@ async function request(url) {
 
         if (!response.ok) {
 
-            let message = `Binance API error: ${response.status}`;
+            let message =
+                `Binance API error: ${response.status}`;
 
             try {
 
                 const error = await response.json();
 
-                if (error.msg) {
+                if (error?.msg) {
                     message += " - " + error.msg;
                 }
 
             } catch {
-                // Keep original HTTP error.
+                // Preserve original HTTP error.
             }
 
             throw new Error(message);
 
         }
 
-        return await response.json();
+        const data = await response.json();
+
+        if (data === null || data === undefined) {
+
+            throw new Error(
+                "Invalid response from Binance API."
+            );
+
+        }
+
+        return data;
 
     } catch (error) {
 
@@ -96,30 +110,72 @@ async function request(url) {
 
 
 /* =====================================================
+   SYMBOL VALIDATION
+===================================================== */
+
+function normalizeSymbol(symbol) {
+
+    if (
+        typeof symbol !== "string" ||
+        !symbol.trim()
+    ) {
+
+        throw new Error(
+            "Missing cryptocurrency symbol."
+        );
+
+    }
+
+    const normalized = symbol.trim().toUpperCase();
+
+    if (!/^[A-Z0-9]+$/.test(normalized)) {
+
+        throw new Error(
+            "Invalid cryptocurrency symbol."
+        );
+
+    }
+
+    return normalized;
+
+}
+
+
+/* =====================================================
    LIVE PRICE
 ===================================================== */
 
 export async function getPrice(symbol) {
 
-    if (!symbol) {
-
-        throw new Error("Missing cryptocurrency symbol.");
-
-    }
+    const normalized = normalizeSymbol(symbol);
 
     const url = apiURL(API.PRICE, {
 
-        symbol
+        symbol: normalized
 
     });
 
     const data = await request(url);
 
+    const price = Number(data.price);
+
+    if (
+        data.symbol !== normalized ||
+        !Number.isFinite(price) ||
+        price <= 0
+    ) {
+
+        throw new Error(
+            "Invalid price data received from Binance."
+        );
+
+    }
+
     return {
 
         symbol: data.symbol,
 
-        price: Number(data.price),
+        price,
 
         timestamp: Date.now()
 
@@ -134,7 +190,11 @@ export async function getPrice(symbol) {
 
 export async function get24HourTicker(symbol) {
 
-    const params = symbol ? { symbol } : {};
+    const params = symbol
+
+        ? { symbol: normalizeSymbol(symbol) }
+
+        : {};
 
     const url = apiURL(API.TICKER, params);
 
@@ -146,6 +206,14 @@ export async function get24HourTicker(symbol) {
 
     }
 
+    if (!data || typeof data !== "object") {
+
+        throw new Error(
+            "Invalid ticker response from Binance."
+        );
+
+    }
+
     return normalizeTicker(data);
 
 }
@@ -153,33 +221,60 @@ export async function get24HourTicker(symbol) {
 
 function normalizeTicker(data) {
 
-    return {
+    if (
+        !data ||
+        typeof data.symbol !== "string"
+    ) {
 
-        symbol: data.symbol,
+        throw new Error(
+            "Invalid ticker data received from Binance."
+        );
 
-        price: Number(data.lastPrice),
+    }
 
-        openPrice: Number(data.openPrice),
+    const numericFields = {
 
-        high: Number(data.highPrice),
+        price: data.lastPrice,
 
-        low: Number(data.lowPrice),
+        openPrice: data.openPrice,
 
-        volume: Number(data.volume),
+        high: data.highPrice,
 
-        quoteVolume: Number(data.quoteVolume),
+        low: data.lowPrice,
 
-        change: Number(data.priceChange),
+        volume: data.volume,
 
-        changePercent: Number(data.priceChangePercent),
+        quoteVolume: data.quoteVolume,
 
-        trades: Number(data.count),
+        change: data.priceChange,
 
-        weightedAverage: Number(data.weightedAvgPrice),
+        changePercent: data.priceChangePercent,
 
-        timestamp: Date.now()
+        trades: data.count,
+
+        weightedAverage: data.weightedAvgPrice
 
     };
+
+    const result = {
+
+        symbol: data.symbol
+
+    };
+
+    for (const [key, value] of Object.entries(numericFields)) {
+
+        const number = Number(value);
+
+        result[key] = Number.isFinite(number)
+            ? number
+            : 0;
+
+    }
+
+    result.timestamp = Date.now();
+
+    return result;
 
 }
 
@@ -200,9 +295,11 @@ export async function getCandles(
 
 ) {
 
+    const normalized = normalizeSymbol(symbol);
+
     const timeframe = CONFIG.TIMEFRAMES[interval];
 
-    if (!timeframe) {
+    if (!timeframe || !timeframe.interval) {
 
         throw new Error(
             "Unsupported timeframe: " + interval
@@ -210,14 +307,27 @@ export async function getCandles(
 
     }
 
+    const requestedLimit = Number(limit);
+
     const safeLimit = Math.min(
-        Math.max(Number(limit) || 500, 1),
+
+        Math.max(
+
+            Number.isFinite(requestedLimit)
+                ? Math.floor(requestedLimit)
+                : 500,
+
+            1
+
+        ),
+
         1000
+
     );
 
     const params = {
 
-        symbol,
+        symbol: normalized,
 
         interval: timeframe.interval,
 
@@ -227,13 +337,34 @@ export async function getCandles(
 
     if (endTime !== undefined) {
 
-        params.endTime = endTime;
+        const timestamp = Number(endTime);
+
+        if (
+            !Number.isFinite(timestamp) ||
+            timestamp < 0
+        ) {
+
+            throw new Error(
+                "Invalid candle endTime."
+            );
+
+        }
+
+        params.endTime = Math.floor(timestamp);
 
     }
 
     const url = apiURL(API.KLINES, params);
 
     const raw = await request(url);
+
+    if (!Array.isArray(raw)) {
+
+        throw new Error(
+            "Invalid candle response from Binance."
+        );
+
+    }
 
     return raw.map(normalizeCandle);
 
@@ -242,33 +373,90 @@ export async function getCandles(
 
 function normalizeCandle(candle) {
 
+    if (
+        !Array.isArray(candle) ||
+        candle.length < 12
+    ) {
+
+        throw new Error(
+            "Invalid OHLCV candle received from Binance."
+        );
+
+    }
+
+    const openTime = Number(candle[0]);
+
+    const open = Number(candle[1]);
+
+    const high = Number(candle[2]);
+
+    const low = Number(candle[3]);
+
+    const close = Number(candle[4]);
+
+    const volume = Number(candle[5]);
+
+    const closeTime = Number(candle[6]);
+
+    const quoteVolume = Number(candle[7]);
+
+    const trades = Number(candle[8]);
+
+    const takerBuyBaseVolume = Number(candle[9]);
+
+    const takerBuyQuoteVolume = Number(candle[10]);
+
+    const values = [
+
+        openTime,
+        open,
+        high,
+        low,
+        close,
+        volume,
+        closeTime,
+        quoteVolume,
+        trades,
+        takerBuyBaseVolume,
+        takerBuyQuoteVolume
+
+    ];
+
+    if (!values.every(Number.isFinite)) {
+
+        throw new Error(
+            "Binance returned invalid numeric candle values."
+        );
+
+    }
+
     return {
 
-        time: Math.floor(Number(candle[0]) / 1000),
+        time: Math.floor(openTime / 1000),
 
-        openTime: Number(candle[0]),
+        openTime,
 
-        open: Number(candle[1]),
+        open,
 
-        high: Number(candle[2]),
+        high,
 
-        low: Number(candle[3]),
+        low,
 
-        close: Number(candle[4]),
+        close,
 
-        volume: Number(candle[5]),
+        volume,
 
-        closeTime: Number(candle[6]),
+        closeTime,
 
-        quoteVolume: Number(candle[7]),
+        quoteVolume,
 
-        trades: Number(candle[8]),
+        trades,
 
-        takerBuyBaseVolume: Number(candle[9]),
+        takerBuyBaseVolume,
 
-        takerBuyQuoteVolume: Number(candle[10]),
+        takerBuyQuoteVolume,
 
-        closed: Number(candle[6]) < Date.now()
+        closed: closeTime < Date.now()
 
     };
 
@@ -300,17 +488,30 @@ export async function getHistoricalCandles(
 
 ) {
 
+    const normalized = normalizeSymbol(symbol);
+
     const timeframe = CONFIG.TIMEFRAMES[interval];
 
-    if (!timeframe) {
+    if (!timeframe || !timeframe.interval) {
 
         throw new Error("Invalid timeframe.");
 
     }
 
+    const requestedTotal = Number(totalCandles);
+
     const target = Math.max(
+
         1,
-        Math.floor(Number(totalCandles) || 2000)
+
+        Math.floor(
+
+            Number.isFinite(requestedTotal)
+                ? requestedTotal
+                : 2000
+
+        )
+
     );
 
     const result = [];
@@ -321,11 +522,14 @@ export async function getHistoricalCandles(
 
         const remaining = target - result.length;
 
-        const batchSize = Math.min(remaining, 1000);
+        const batchSize = Math.min(
+            remaining,
+            1000
+        );
 
         const batch = await getCandles(
 
-            symbol,
+            normalized,
 
             interval,
 
@@ -336,10 +540,10 @@ export async function getHistoricalCandles(
         );
 
         if (!batch.length) {
-
             break;
-
         }
+
+        // Insert older candles before newer candles.
 
         result.unshift(...batch);
 
@@ -347,33 +551,35 @@ export async function getHistoricalCandles(
 
         endTime = oldestTime - 1;
 
+        // No more historical data available.
+
         if (batch.length < batchSize) {
-
             break;
-
         }
 
-        // Avoid excessive requests.
+        // Avoid excessive API requests.
 
         if (result.length < target) {
 
-            await new Promise(resolve =>
-                setTimeout(resolve, 150)
-            );
+            await new Promise(resolve => {
+
+                setTimeout(resolve, 150);
+
+            });
 
         }
 
     }
 
-    // Remove any duplicate timestamps.
+    // Remove duplicate timestamps.
 
     const unique = new Map();
 
-    result.forEach(candle => {
+    for (const candle of result) {
 
         unique.set(candle.time, candle);
 
-    });
+    }
 
     return Array.from(unique.values())
 
@@ -394,31 +600,57 @@ export async function getTopMarkets(
 
 ) {
 
+    const requestedLimit = Number(limit);
+
+    const safeLimit = Math.max(
+
+        1,
+
+        Math.floor(
+
+            Number.isFinite(requestedLimit)
+                ? requestedLimit
+                : CONFIG.SCANNER.TOP_MARKETS
+
+        )
+
+    );
+
     const data = await get24HourTicker();
 
-    const excluded = CONFIG.SCANNER.EXCLUDED_ASSETS;
+    const excluded = Array.isArray(
+        CONFIG.SCANNER.EXCLUDED_ASSETS
+    )
+        ? CONFIG.SCANNER.EXCLUDED_ASSETS
+        : [];
 
-    const suffixes = CONFIG.SCANNER.EXCLUDED_SUFFIXES;
+    const suffixes = Array.isArray(
+        CONFIG.SCANNER.EXCLUDED_SUFFIXES
+    )
+        ? CONFIG.SCANNER.EXCLUDED_SUFFIXES
+        : [];
+
+    const minimumVolume = Number(
+        CONFIG.SCANNER.MIN_QUOTE_VOLUME
+    );
 
     return data
 
         .filter(item => {
 
             if (!item.symbol.endsWith("USDT")) {
-
                 return false;
-
             }
 
             if (excluded.includes(item.symbol)) {
-
                 return false;
-
             }
 
-            if (suffixes.some(suffix =>
-                item.symbol.endsWith(suffix)
-            )) {
+            if (
+                suffixes.some(suffix =>
+                    item.symbol.endsWith(suffix)
+                )
+            ) {
 
                 return false;
 
@@ -434,8 +666,8 @@ export async function getTopMarkets(
             }
 
             if (
-                item.quoteVolume <
-                CONFIG.SCANNER.MIN_QUOTE_VOLUME
+                !Number.isFinite(item.quoteVolume) ||
+                item.quoteVolume < minimumVolume
             ) {
 
                 return false;
@@ -450,7 +682,7 @@ export async function getTopMarkets(
             b.quoteVolume - a.quoteVolume
         )
 
-        .slice(0, limit);
+        .slice(0, safeLimit);
 
 }
 
@@ -467,13 +699,39 @@ export async function getMultiplePrices(symbols) {
 
     }
 
-    const requested = new Set(symbols);
+    const requested = new Set(
+
+        symbols
+
+            .filter(symbol =>
+                typeof symbol === "string"
+            )
+
+            .map(symbol =>
+                symbol.trim().toUpperCase()
+            )
+
+    );
+
+    if (!requested.size) {
+        return [];
+    }
 
     const data = await getPriceList();
 
+    if (!Array.isArray(data)) {
+
+        throw new Error(
+            "Invalid Binance price list response."
+        );
+
+    }
+
     return data
 
-        .filter(item => requested.has(item.symbol))
+        .filter(item =>
+            requested.has(item.symbol)
+        )
 
         .map(item => ({
 
@@ -481,7 +739,12 @@ export async function getMultiplePrices(symbols) {
 
             price: Number(item.price)
 
-        }));
+        }))
+
+        .filter(item =>
+            Number.isFinite(item.price) &&
+            item.price > 0
+        );
 
 }
 
@@ -540,7 +803,11 @@ export async function testConnection() {
 
 export async function getExchangeInfo(symbol = undefined) {
 
-    const params = symbol ? { symbol } : {};
+    const params = symbol
+
+        ? { symbol: normalizeSymbol(symbol) }
+
+        : {};
 
     const url = apiURL(API.EXCHANGE_INFO, params);
 
@@ -555,19 +822,20 @@ export async function getExchangeInfo(symbol = undefined) {
 
 export function validateCandles(candles) {
 
-    if (!Array.isArray(candles)) {
-
-        return false;
-
-    }
-
-    if (candles.length < 2) {
+    if (
+        !Array.isArray(candles) ||
+        candles.length < 2
+    ) {
 
         return false;
 
     }
 
     return candles.every((candle, index) => {
+
+        if (!candle || typeof candle !== "object") {
+            return false;
+        }
 
         const values = [
 
@@ -588,17 +856,25 @@ export function validateCandles(candles) {
         const valid = values.every(Number.isFinite);
 
         if (!valid) {
-
             return false;
-
         }
 
         if (
+
             candle.high < candle.low ||
+
             candle.low <= 0 ||
-            candle.volume < 0 ||
-            candle.open <= 0 ||
-            candle.close <= 0
+
+            candle.open < candle.low ||
+
+            candle.open > candle.high ||
+
+            candle.close < candle.low ||
+
+            candle.close > candle.high ||
+
+            candle.volume < 0
+
         ) {
 
             return false;
@@ -606,8 +882,11 @@ export function validateCandles(candles) {
         }
 
         if (
+
             index > 0 &&
+
             candle.time <= candles[index - 1].time
+
         ) {
 
             return false;
