@@ -930,41 +930,73 @@ function updateRSIChart(candles, indicators) {
 }
 
 
+
 /* =====================================================
-   UPDATE MACD CHART
+   UPDATE MACD CHART — SIGMA 3.1
+   Supports both technical.js and backtestEngine.js
 ===================================================== */
 
 function updateMACDChart(candles, indicators) {
 
-    if (!macdChart) return;
+    if (!macdChart || !Array.isArray(candles)) {
+        return;
+    }
+
+    if (!indicators || typeof indicators !== "object") {
+
+        macdLineSeries.setData([]);
+        macdSignalSeries.setData([]);
+        macdHistogramSeries.setData([]);
+
+        return;
+    }
+
+    /*
+       Normalize MACD structures.
+
+       Technical engine:
+       indicators.macd
+       indicators.macdSignal
+       indicators.macdHistogram
+
+       Backtest engine:
+       indicators.macd.line
+       indicators.macd.signal
+       indicators.macd.histogram
+    */
+
+    const macdLine = Array.isArray(indicators.macd)
+        ? indicators.macd
+        : indicators.macd?.line;
+
+    const macdSignal = Array.isArray(indicators.macdSignal)
+        ? indicators.macdSignal
+        : indicators.macd?.signal;
+
+    const macdHistogram = Array.isArray(indicators.macdHistogram)
+        ? indicators.macdHistogram
+        : indicators.macd?.histogram;
+
+    // MACD line
 
     macdLineSeries.setData(
-
-        indicatorData(
-            candles,
-            indicators?.macd
-        )
-
+        indicatorData(candles, macdLine)
     );
+
+    // Signal line
 
     macdSignalSeries.setData(
-
-        indicatorData(
-            candles,
-            indicators?.macdSignal
-        )
-
+        indicatorData(candles, macdSignal)
     );
+
+    // MACD histogram
 
     const histogram = candles.map((candle, index) => {
 
-        const value =
-            indicators?.macdHistogram?.[index];
+        const value = macdHistogram?.[index];
 
         if (!Number.isFinite(value)) {
-
             return null;
-
         }
 
         return {
@@ -974,9 +1006,7 @@ function updateMACDChart(candles, indicators) {
             value,
 
             color: value >= 0
-
                 ? "rgba(50,212,155,0.7)"
-
                 : "rgba(255,99,124,0.7)"
 
         };
@@ -988,7 +1018,6 @@ function updateMACDChart(candles, indicators) {
     macdChart.timeScale().fitContent();
 
 }
-
 
 /* =====================================================
    UPDATE ALL CHARTS
