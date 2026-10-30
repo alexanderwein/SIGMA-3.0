@@ -16,7 +16,7 @@ Indicators:
 - VWAP
 - OBV
 
-All calculations use historical candle data.
+All calculations use historical OHLCV candle data.
 
 =========================================================
 */
@@ -28,18 +28,86 @@ All calculations use historical candle data.
 
 function validateArray(values) {
 
-    if (!Array.isArray(values) || !values.length) {
-
+    if (!Array.isArray(values) || values.length === 0) {
         throw new Error("Invalid indicator input.");
-
     }
 
     if (!values.every(Number.isFinite)) {
+        throw new Error(
+            "Indicator input contains invalid values."
+        );
+    }
 
-        throw new Error("Indicator input contains invalid values.");
+    return true;
+}
+
+
+function validatePeriod(period, name = "period") {
+
+    if (
+        !Number.isInteger(period) ||
+        period < 1
+    ) {
+        throw new Error(`Invalid ${name}.`);
+    }
+
+    return true;
+}
+
+
+/* =====================================================
+   CANDLE VALIDATION
+===================================================== */
+
+export function validateCandles(candles) {
+
+    if (!Array.isArray(candles) || candles.length === 0) {
+        throw new Error("Invalid candle data.");
+    }
+
+    let previousTime = -Infinity;
+
+    for (const candle of candles) {
+
+        if (!candle || typeof candle !== "object") {
+            throw new Error("Invalid candle object.");
+        }
+
+        const values = [
+            candle.time,
+            candle.open,
+            candle.high,
+            candle.low,
+            candle.close,
+            candle.volume
+        ];
+
+        if (!values.every(Number.isFinite)) {
+            throw new Error(
+                "Invalid OHLCV candle values."
+            );
+        }
+
+        if (
+            candle.time <= previousTime ||
+            candle.low <= 0 ||
+            candle.high < candle.low ||
+            candle.open < candle.low ||
+            candle.open > candle.high ||
+            candle.close < candle.low ||
+            candle.close > candle.high ||
+            candle.volume < 0
+        ) {
+            throw new Error(
+                "Inconsistent OHLCV candle."
+            );
+        }
+
+        previousTime = candle.time;
 
     }
 
+    return true;
 }
 
 
@@ -50,11 +118,10 @@ function validateArray(values) {
 export function sma(values, period) {
 
     validateArray(values);
+    validatePeriod(period);
 
-    if (period < 1 || period > values.length) {
-
+    if (period > values.length) {
         throw new Error("Invalid SMA period.");
-
     }
 
     const result = Array(values.length).fill(null);
@@ -66,21 +133,16 @@ export function sma(values, period) {
         sum += values[i];
 
         if (i >= period) {
-
             sum -= values[i - period];
-
         }
 
         if (i >= period - 1) {
-
             result[i] = sum / period;
-
         }
 
     }
 
     return result;
-
 }
 
 
@@ -91,15 +153,10 @@ export function sma(values, period) {
 export function ema(values, period) {
 
     validateArray(values);
+    validatePeriod(period);
 
-    if (
-        !Number.isInteger(period) ||
-        period < 1 ||
-        values.length < period
-    ) {
-
+    if (period > values.length) {
         throw new Error("Invalid EMA period.");
-
     }
 
     const result = Array(values.length).fill(null);
@@ -109,9 +166,7 @@ export function ema(values, period) {
     let initial = 0;
 
     for (let i = 0; i < period; i++) {
-
         initial += values[i];
-
     }
 
     let previous = initial / period;
@@ -129,7 +184,6 @@ export function ema(values, period) {
     }
 
     return result;
-
 }
 
 
@@ -140,21 +194,18 @@ export function ema(values, period) {
 function wilderAverage(values, period) {
 
     validateArray(values);
+    validatePeriod(period);
 
     const result = Array(values.length).fill(null);
 
     if (values.length < period) {
-
         return result;
-
     }
 
     let initial = 0;
 
     for (let i = 0; i < period; i++) {
-
         initial += values[i];
-
     }
 
     let previous = initial / period;
@@ -164,45 +215,35 @@ function wilderAverage(values, period) {
     for (let i = period; i < values.length; i++) {
 
         previous =
-            (previous * (period - 1) + values[i]) /
-            period;
+            (
+                previous * (period - 1) +
+                values[i]
+            ) / period;
 
         result[i] = previous;
 
     }
 
     return result;
-
 }
 
 
 /* =====================================================
-   RELATIVE STRENGTH INDEX
+   RELATIVE STRENGTH INDEX — WILDER
 ===================================================== */
 
 export function rsi(values, period = 14) {
 
     validateArray(values);
-
-    if (
-        !Number.isInteger(period) ||
-        period < 1
-    ) {
-
-        throw new Error("Invalid RSI period.");
-
-    }
+    validatePeriod(period);
 
     const result = Array(values.length).fill(null);
 
     if (values.length <= period) {
-
         return result;
-
     }
 
     const gains = [];
-
     const losses = [];
 
     for (let i = 1; i < values.length; i++) {
@@ -216,14 +257,16 @@ export function rsi(values, period = 14) {
     }
 
     const avgGain = wilderAverage(gains, period);
-
     const avgLoss = wilderAverage(losses, period);
 
     for (let i = period; i < values.length; i++) {
 
         const gain = avgGain[i - 1];
-
         const loss = avgLoss[i - 1];
+
+        if (gain === null || loss === null) {
+            continue;
+        }
 
         if (loss === 0) {
 
@@ -233,47 +276,40 @@ export function rsi(values, period = 14) {
 
             const rs = gain / loss;
 
-            result[i] = 100 - 100 / (1 + rs);
+            result[i] = 100 - (100 / (1 + rs));
 
         }
 
     }
 
     return result;
-
 }
 
-
 /* =====================================================
-   MOVING AVERAGE CONVERGENCE DIVERGENCE
+   MOVING AVERAGE CONVERGENCE DIVERGENCE — MACD
 ===================================================== */
 
 export function macd(
-
     values,
-
     fast = 12,
-
     slow = 26,
-
     signalPeriod = 9
-
 ) {
 
     validateArray(values);
 
+    validatePeriod(fast, "fast period");
+    validatePeriod(slow, "slow period");
+    validatePeriod(signalPeriod, "signal period");
+
     if (
         fast >= slow ||
-        fast < 1 ||
-        signalPeriod < 1
+        slow > values.length
     ) {
-
         throw new Error("Invalid MACD parameters.");
-
     }
 
     const fastEMA = ema(values, fast);
-
     const slowEMA = ema(values, slow);
 
     const line = Array(values.length).fill(null);
@@ -288,37 +324,31 @@ export function macd(
 
     const compact = line.slice(firstValid);
 
-    const signalCompact = ema(compact, signalPeriod);
+    const compactEMA = ema(compact, signalPeriod);
 
     const signal = Array(values.length).fill(null);
-
     const histogram = Array(values.length).fill(null);
 
-    for (let i = 0; i < signalCompact.length; i++) {
+    for (let i = 0; i < compactEMA.length; i++) {
 
         const index = firstValid + i;
 
-        signal[index] = signalCompact[i];
-
-        if (signal[index] !== null) {
-
-            histogram[index] =
-                line[index] - signal[index];
-
+        if (compactEMA[i] === null) {
+            continue;
         }
+
+        signal[index] = compactEMA[i];
+
+        histogram[index] =
+            line[index] - signal[index];
 
     }
 
     return {
-
         line,
-
         signal,
-
         histogram
-
     };
-
 }
 
 
@@ -333,9 +363,7 @@ export function trueRange(candles) {
     return candles.map((candle, i) => {
 
         if (i === 0) {
-
             return candle.high - candle.low;
-
         }
 
         const previous = candles[i - 1];
@@ -344,42 +372,57 @@ export function trueRange(candles) {
 
             candle.high - candle.low,
 
-            Math.abs(candle.high - previous.close),
+            Math.abs(
+                candle.high - previous.close
+            ),
 
-            Math.abs(candle.low - previous.close)
+            Math.abs(
+                candle.low - previous.close
+            )
 
         );
 
     });
-
 }
 
 
 /* =====================================================
-   AVERAGE TRUE RANGE
+   AVERAGE TRUE RANGE — WILDER
 ===================================================== */
 
 export function atr(candles, period = 14) {
 
+    validateCandles(candles);
+    validatePeriod(period, "ATR period");
+
     const ranges = trueRange(candles);
 
     return wilderAverage(ranges, period);
-
 }
 
 
 /* =====================================================
-   AVERAGE DIRECTIONAL INDEX
+   AVERAGE DIRECTIONAL INDEX — ADX
 ===================================================== */
 
 export function adx(candles, period = 14) {
 
     validateCandles(candles);
+    validatePeriod(period, "ADX period");
 
     const length = candles.length;
 
-    const plusDM = Array(length).fill(0);
+    const result = {
+        adx: Array(length).fill(null),
+        plusDI: Array(length).fill(null),
+        minusDI: Array(length).fill(null)
+    };
 
+    if (length < period * 2) {
+        return result;
+    }
+
+    const plusDM = Array(length).fill(0);
     const minusDM = Array(length).fill(0);
 
     const ranges = trueRange(candles);
@@ -387,34 +430,31 @@ export function adx(candles, period = 14) {
     for (let i = 1; i < length; i++) {
 
         const up =
-            candles[i].high - candles[i - 1].high;
+            candles[i].high -
+            candles[i - 1].high;
 
         const down =
-            candles[i - 1].low - candles[i].low;
+            candles[i - 1].low -
+            candles[i].low;
 
         if (up > down && up > 0) {
-
             plusDM[i] = up;
-
         }
 
         if (down > up && down > 0) {
-
             minusDM[i] = down;
-
         }
 
     }
 
-    const smoothedTR = wilderAverage(ranges, period);
+    const smoothedTR =
+        wilderAverage(ranges, period);
 
-    const smoothedPlus = wilderAverage(plusDM, period);
+    const smoothedPlus =
+        wilderAverage(plusDM, period);
 
-    const smoothedMinus = wilderAverage(minusDM, period);
-
-    const plusDI = Array(length).fill(null);
-
-    const minusDI = Array(length).fill(null);
+    const smoothedMinus =
+        wilderAverage(minusDM, period);
 
     const dx = Array(length).fill(null);
 
@@ -422,77 +462,110 @@ export function adx(candles, period = 14) {
 
         const tr = smoothedTR[i];
 
-        if (tr === 0 || tr === null) {
-
+        if (tr === null || tr <= 0) {
             continue;
-
         }
 
-        plusDI[i] =
+        const plusDI =
             100 * smoothedPlus[i] / tr;
 
-        minusDI[i] =
+        const minusDI =
             100 * smoothedMinus[i] / tr;
 
-        const total = plusDI[i] + minusDI[i];
+        result.plusDI[i] = plusDI;
+        result.minusDI[i] = minusDI;
+
+        const total = plusDI + minusDI;
 
         dx[i] = total === 0
 
             ? 0
 
             : 100 * Math.abs(
-                plusDI[i] - minusDI[i]
+                plusDI - minusDI
             ) / total;
 
     }
 
-    const validDX = dx.slice(period - 1);
+    // First ADX is the average of the first
+    // complete period of valid DX values.
 
-    const validADX = wilderAverage(validDX, period);
+    const firstADXIndex = period * 2 - 2;
 
-    const adxValues = Array(length).fill(null);
+    let initialSum = 0;
+    let validCount = 0;
 
-    for (let i = 0; i < validADX.length; i++) {
+    for (
+        let i = period - 1;
+        i <= firstADXIndex;
+        i++
+    ) {
 
-        adxValues[period - 1 + i] = validADX[i];
+        if (dx[i] !== null) {
+
+            initialSum += dx[i];
+            validCount++;
+
+        }
 
     }
 
-    return {
+    if (validCount === period) {
 
-        adx: adxValues,
+        let previousADX =
+            initialSum / period;
 
-        plusDI,
+        result.adx[firstADXIndex] = previousADX;
 
-        minusDI
+        for (
+            let i = firstADXIndex + 1;
+            i < length;
+            i++
+        ) {
 
-    };
+            if (dx[i] === null) {
+                continue;
+            }
 
+            previousADX = (
+                previousADX * (period - 1) +
+                dx[i]
+            ) / period;
+
+            result.adx[i] = previousADX;
+
+        }
+
+    }
+
+    return result;
 }
-
 
 /* =====================================================
    BOLLINGER BANDS
 ===================================================== */
 
 export function bollinger(
-
     values,
-
     period = 20,
-
     multiplier = 2
-
 ) {
 
     validateArray(values);
+    validatePeriod(period, "Bollinger period");
+
+    if (
+        period > values.length ||
+        !Number.isFinite(multiplier) ||
+        multiplier < 0
+    ) {
+        throw new Error("Invalid Bollinger parameters.");
+    }
 
     const middle = sma(values, period);
 
     const upper = Array(values.length).fill(null);
-
     const lower = Array(values.length).fill(null);
-
     const deviation = Array(values.length).fill(null);
 
     for (let i = period - 1; i < values.length; i++) {
@@ -525,17 +598,11 @@ export function bollinger(
     }
 
     return {
-
         middle,
-
         upper,
-
         lower,
-
         deviation
-
     };
-
 }
 
 
@@ -544,18 +611,19 @@ export function bollinger(
 ===================================================== */
 
 export function stochasticRSI(
-
     values,
-
     rsiPeriod = 14,
-
     stochasticPeriod = 14,
-
     kPeriod = 3,
-
     dPeriod = 3
-
 ) {
+
+    validateArray(values);
+
+    validatePeriod(rsiPeriod, "RSI period");
+    validatePeriod(stochasticPeriod, "stochastic period");
+    validatePeriod(kPeriod, "K period");
+    validatePeriod(dPeriod, "D period");
 
     const rsiValues = rsi(values, rsiPeriod);
 
@@ -568,28 +636,25 @@ export function stochasticRSI(
     ) {
 
         const window = rsiValues.slice(
-
             i - stochasticPeriod + 1,
-
             i + 1
-
         );
 
         if (window.some(value => value === null)) {
-
             continue;
-
         }
 
         const min = Math.min(...window);
-
         const max = Math.max(...window);
 
         raw[i] = max === min
 
             ? 50
 
-            : 100 * (rsiValues[i] - min) / (max - min);
+            : 100 * (
+                (rsiValues[i] - min) /
+                (max - min)
+            );
 
     }
 
@@ -597,63 +662,72 @@ export function stochasticRSI(
         value => value !== null
     );
 
+    const k = Array(values.length).fill(null);
+    const d = Array(values.length).fill(null);
+
     if (validStart === -1) {
-
-        return {
-
-            k: Array(values.length).fill(null),
-
-            d: Array(values.length).fill(null)
-
-        };
-
+        return { k, d };
     }
+
+    // Smooth only valid Stochastic RSI values.
 
     const compact = raw.slice(validStart);
 
-    const compactValues = compact.map(
-        value => value === null ? 0 : value
-    );
+    const compactK = Array(compact.length).fill(null);
 
-    const compactK = sma(compactValues, kPeriod);
+    for (let i = kPeriod - 1; i < compact.length; i++) {
 
-    const compactD = sma(
+        let sum = 0;
 
-        compactK.map(
-            value => value === null ? 0 : value
-        ),
+        for (
+            let j = i - kPeriod + 1;
+            j <= i;
+            j++
+        ) {
 
-        dPeriod
-
-    );
-
-    const k = Array(values.length).fill(null);
-
-    const d = Array(values.length).fill(null);
-
-    for (let i = 0; i < compact.length; i++) {
-
-        const index = validStart + i;
-
-        if (i >= kPeriod - 1 && compact[i] !== null) {
-
-            k[index] = compactK[i];
+            sum += compact[j];
 
         }
 
-        if (
-            i >= kPeriod + dPeriod - 2 &&
-            k[index] !== null
+        compactK[i] = sum / kPeriod;
+
+        k[validStart + i] = compactK[i];
+
+    }
+
+    for (
+        let i = kPeriod + dPeriod - 2;
+        i < compact.length;
+        i++
+    ) {
+
+        let sum = 0;
+        let valid = true;
+
+        for (
+            let j = i - dPeriod + 1;
+            j <= i;
+            j++
         ) {
 
-            d[index] = compactD[i];
+            if (compactK[j] === null) {
+                valid = false;
+                break;
+            }
+
+            sum += compactK[j];
+
+        }
+
+        if (valid) {
+
+            d[validStart + i] = sum / dPeriod;
 
         }
 
     }
 
     return { k, d };
-
 }
 
 
@@ -662,7 +736,7 @@ export function stochasticRSI(
 ===================================================== */
 
 /*
-Session VWAP is reset each UTC day.
+Session VWAP resets each UTC day.
 */
 
 export function vwap(candles) {
@@ -672,7 +746,6 @@ export function vwap(candles) {
     const result = Array(candles.length).fill(null);
 
     let cumulativePriceVolume = 0;
-
     let cumulativeVolume = 0;
 
     let currentSession = null;
@@ -688,7 +761,6 @@ export function vwap(candles) {
         if (session !== currentSession) {
 
             cumulativePriceVolume = 0;
-
             cumulativeVolume = 0;
 
             currentSession = session;
@@ -696,11 +768,9 @@ export function vwap(candles) {
         }
 
         const typicalPrice = (
-
             candle.high +
             candle.low +
             candle.close
-
         ) / 3;
 
         cumulativePriceVolume +=
@@ -711,14 +781,14 @@ export function vwap(candles) {
         if (cumulativeVolume > 0) {
 
             result[i] =
-                cumulativePriceVolume / cumulativeVolume;
+                cumulativePriceVolume /
+                cumulativeVolume;
 
         }
 
     }
 
     return result;
-
 }
 
 
@@ -735,7 +805,6 @@ export function obv(candles) {
     for (let i = 1; i < candles.length; i++) {
 
         const current = candles[i];
-
         const previous = candles[i - 1];
 
         if (current.close > previous.close) {
@@ -757,76 +826,6 @@ export function obv(candles) {
     }
 
     return result;
-
-}
-
-
-/* =====================================================
-   CANDLE VALIDATION
-===================================================== */
-
-export function validateCandles(candles) {
-
-    if (!Array.isArray(candles) || !candles.length) {
-
-        throw new Error("Invalid candle data.");
-
-    }
-
-    for (const candle of candles) {
-
-        const values = [
-
-            candle.time,
-
-            candle.open,
-
-            candle.high,
-
-            candle.low,
-
-            candle.close,
-
-            candle.volume
-
-        ];
-
-        if (!values.every(Number.isFinite)) {
-
-            throw new Error(
-                "Invalid OHLCV candle values."
-            );
-
-        }
-
-        if (
-
-            candle.low <= 0 ||
-
-            candle.high < candle.low ||
-
-            candle.open < candle.low ||
-
-            candle.open > candle.high ||
-
-            candle.close < candle.low ||
-
-            candle.close > candle.high ||
-
-            candle.volume < 0
-
-        ) {
-
-            throw new Error(
-                "Inconsistent OHLCV candle."
-            );
-
-        }
-
-    }
-
-    return true;
-
 }
 
 
@@ -889,7 +888,6 @@ export function calculateAll(candles) {
         obv: obv(candles)
 
     };
-
 }
 
 
@@ -912,5 +910,4 @@ export function getLatestIndicators(candles) {
     }
 
     return snapshot;
-
 }
