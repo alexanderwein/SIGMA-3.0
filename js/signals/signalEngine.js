@@ -3,7 +3,7 @@
 =========================================================
  SIGMA 3.0
  SIGNAL ENGINE
- PART 1: CONFIGURATION AND INDICATOR ANALYSIS
+ FIXED VERSION
 =========================================================
 */
 
@@ -28,7 +28,10 @@ const SETTINGS = {
 ===================================================== */
 
 function validNumber(value) {
-    return Number.isFinite(Number(value));
+    return (
+        typeof value === "number" &&
+        Number.isFinite(value)
+    );
 }
 
 
@@ -55,6 +58,14 @@ function validateData(data) {
             );
         }
 
+    }
+
+    if (data.price <= 0) {
+        throw new Error("Invalid market price.");
+    }
+
+    if (data.rsi < 0 || data.rsi > 100) {
+        throw new Error("Invalid RSI value.");
     }
 
     return true;
@@ -84,7 +95,6 @@ function analyzeTrend(data) {
     }
 
     return "SIDEWAYS";
-
 }
 
 
@@ -124,12 +134,21 @@ function analyzeRSI(data) {
 
     }
 
-    return {
-        direction: "BEARISH",
-        strength: 1,
-        description: "RSI negative momentum"
-    };
+    if (data.rsi < 50) {
 
+        return {
+            direction: "BEARISH",
+            strength: 1,
+            description: "RSI negative momentum"
+        };
+
+    }
+
+    return {
+        direction: "NEUTRAL",
+        strength: 0,
+        description: "RSI neutral"
+    };
 }
 
 
@@ -164,7 +183,6 @@ function analyzeMACD(data) {
         strength: 0,
         description: "MACD neutral"
     };
-
 }
 
 
@@ -177,6 +195,7 @@ function analyzeVolume(data) {
     if (
         !validNumber(data.volume) ||
         !validNumber(data.averageVolume) ||
+        data.volume < 0 ||
         data.averageVolume <= 0
     ) {
 
@@ -188,7 +207,8 @@ function analyzeVolume(data) {
 
     }
 
-    const ratio = data.volume / data.averageVolume;
+    const ratio =
+        data.volume / data.averageVolume;
 
     return {
         confirmed: ratio >= SETTINGS.MIN_VOLUME_RATIO,
@@ -197,8 +217,8 @@ function analyzeVolume(data) {
             ? "Volume confirmation"
             : "Weak volume"
     };
-
 }
+
 
 /* =====================================================
    ADX TREND STRENGTH ANALYSIS
@@ -206,7 +226,11 @@ function analyzeVolume(data) {
 
 function analyzeADX(data) {
 
-    if (!validNumber(data.adx)) {
+    if (
+        !validNumber(data.adx) ||
+        data.adx < 0 ||
+        data.adx > 100
+    ) {
 
         return {
             strength: 0,
@@ -237,7 +261,6 @@ function analyzeADX(data) {
         strength: 0,
         description: "Weak trend"
     };
-
 }
 
 
@@ -331,26 +354,23 @@ function calculateScores(data) {
         adx
 
     };
-
 }
 
 
 /* =====================================================
-   RISK MANAGEMENT
+   RISK MANAGEMENT — LONG
 ===================================================== */
 
 function calculateRiskLevels(data) {
 
-    const price = Number(data.price);
+    const price = data.price;
 
     const atr = validNumber(data.atr)
-        ? Number(data.atr)
+        ? data.atr
         : price * 0.02;
 
     if (price <= 0 || atr <= 0) {
-
         return null;
-
     }
 
     const stopDistance = atr * 2;
@@ -372,26 +392,23 @@ function calculateRiskLevels(data) {
         riskRewardRatio: riskReward
 
     };
-
 }
 
 
 /* =====================================================
-   BEARISH RISK LEVELS
+   RISK MANAGEMENT — SHORT
 ===================================================== */
 
 function calculateShortRiskLevels(data) {
 
-    const price = Number(data.price);
+    const price = data.price;
 
     const atr = validNumber(data.atr)
-        ? Number(data.atr)
+        ? data.atr
         : price * 0.02;
 
     if (price <= 0 || atr <= 0) {
-
         return null;
-
     }
 
     const stopDistance = atr * 2;
@@ -413,7 +430,6 @@ function calculateShortRiskLevels(data) {
         riskRewardRatio: riskReward
 
     };
-
 }
 
 
@@ -423,11 +439,12 @@ function calculateShortRiskLevels(data) {
 
 function calculateConfidence(buyScore, sellScore) {
 
-    const difference = Math.abs(buyScore - sellScore);
+    const difference =
+        Math.abs(buyScore - sellScore);
 
     return Math.min(95, difference);
-
 }
+
 
 /* =====================================================
    MAIN SIGNAL GENERATOR
@@ -440,10 +457,13 @@ export function generateSignal(data) {
     const scores = calculateScores(data);
 
     const buyScore = scores.buyScore;
+
     const sellScore = scores.sellScore;
 
     let signal = "HOLD";
-    let explanation = "No sufficiently strong trading setup.";
+
+    let explanation =
+        "No sufficiently strong trading setup.";
 
     let risk = null;
 
@@ -530,7 +550,6 @@ export function generateSignal(data) {
         timestamp: Date.now()
 
     };
-
 }
 
 
@@ -540,9 +559,13 @@ export function generateSignal(data) {
 
 const signalHistory = [];
 
+
 export function saveSignal(result) {
 
-    if (!result || !result.signal) {
+    if (
+        !result ||
+        !["BUY", "SELL", "HOLD"].includes(result.signal)
+    ) {
         return;
     }
 
@@ -573,9 +596,7 @@ export function getSignalHistory() {
 export function getSignalSettings() {
 
     return {
-
         ...SETTINGS
-
     };
 
 }
