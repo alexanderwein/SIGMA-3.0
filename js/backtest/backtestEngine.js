@@ -970,10 +970,21 @@ export function runBacktest(
     const indicators = calculateIndicators(candles);
 
     /*
-       Start after sufficient indicator history.
-       Signals use the completed candle at index i.
-       Trades enter at the next candle's open to avoid
-       look-ahead execution at the signal candle's close.
+       Process completed candles chronologically.
+
+       Signal:
+       Generated using candle i close.
+
+       Entry:
+       Executed at candle i+1 open.
+
+       Exit:
+       Checked using the active trade's candle
+       high and low.
+
+       Equity:
+       Never values a future position using
+       a previous candle's closing price.
     */
 
     for (
@@ -984,8 +995,10 @@ export function runBacktest(
 
         const candle = candles[i];
 
+        let openedForNextCandle = false;
+
         /*
-           Check existing position first.
+           1. Manage existing position.
         */
 
         if (activeTrade) {
@@ -1020,10 +1033,12 @@ export function runBacktest(
         }
 
         /*
-           Generate a new signal only when flat.
+           2. Generate signal at current candle close.
+
+           Only enter when no position is active.
         */
 
-        if (!activeTrade) {
+        if (!activeTrade && capital > 0) {
 
             const signal = historicalSignal(
                 indicators,
@@ -1042,8 +1057,11 @@ export function runBacktest(
                 ) {
 
                     const entryCandle = {
+
                         ...nextCandle,
+
                         close: nextCandle.open
+
                     };
 
                     activeTrade = openTrade(
@@ -1054,6 +1072,9 @@ export function runBacktest(
                         i + 1
                     );
 
+                    openedForNextCandle =
+                        Boolean(activeTrade);
+
                 }
 
             }
@@ -1061,18 +1082,26 @@ export function runBacktest(
         }
 
         /*
-           Update equity and drawdown.
-           Open positions are marked to market.
+           3. Calculate current equity.
+
+           A newly opened position belongs to
+           the NEXT candle, not the current one.
         */
 
-        const currentEquity = activeTrade
+        const currentEquity =
 
-            ? capital + calculateUnrealizedProfit(
-                activeTrade,
-                candle.close
-            )
+            activeTrade && !openedForNextCandle
 
-            : capital;
+                ? capital + calculateUnrealizedProfit(
+                    activeTrade,
+                    candle.close
+                )
+
+                : capital;
+
+        /*
+           4. Update equity peak and drawdown.
+        */
 
         peakCapital = Math.max(
             peakCapital,
@@ -1089,6 +1118,10 @@ export function runBacktest(
             drawdown
         );
 
+        /*
+           5. Record historical equity.
+        */
+
         equityCurve.push({
 
             index: i,
@@ -1104,18 +1137,38 @@ export function runBacktest(
     }
 
     /*
-       Close any remaining position at the final candle.
+       6. Process final candle.
+
+       Unlike the previous implementation,
+       check stop-loss and take-profit before
+       forcing a market close.
     */
 
     if (activeTrade) {
 
         const lastIndex = candles.length - 1;
 
-        const finalTrade = forceCloseTrade(
+        const lastCandle = candles[lastIndex];
+
+        const exit = checkExit(
             activeTrade,
-            candles[lastIndex],
-            lastIndex
+            lastCandle
         );
+
+        const finalTrade = exit
+
+            ? closeTrade(
+                activeTrade,
+                exit.price,
+                lastIndex,
+                exit.reason
+            )
+
+            : forceCloseTrade(
+                activeTrade,
+                lastCandle,
+                lastIndex
+            );
 
         validateTradeResult(finalTrade);
 
@@ -1126,10 +1179,15 @@ export function runBacktest(
             finalTrade
         );
 
+        activeTrade = null;
+
     }
 
     /*
-       Record final equity.
+       7. Calculate final drawdown.
+
+       Final equity is realized equity after
+       closing any remaining position.
     */
 
     peakCapital = Math.max(
@@ -1137,13 +1195,19 @@ export function runBacktest(
         capital
     );
 
+    const finalDrawdown = calculateDrawdown(
+        capital,
+        peakCapital
+    );
+
     maxDrawdown = Math.max(
         maxDrawdown,
-        calculateDrawdown(
-            capital,
-            peakCapital
-        )
+        finalDrawdown
     );
+
+    /*
+       8. Record final equity.
+    */
 
     equityCurve.push({
 
@@ -1154,12 +1218,13 @@ export function runBacktest(
 
         equity: capital,
 
-        drawdown: calculateDrawdown(
-            capital,
-            peakCapital
-        )
+        drawdown: finalDrawdown
 
     });
+
+    /*
+       9. Calculate performance statistics.
+    */
 
     const statistics = calculateStatistics(
         initialCapital,
@@ -1168,6 +1233,10 @@ export function runBacktest(
         equityCurve,
         maxDrawdown
     );
+
+    /*
+       10. Return standardized results.
+    */
 
     return {
 
@@ -1190,7 +1259,6 @@ export function runBacktest(
     };
 
 }
-
 
 /* =====================================================
    BACKTEST SETTINGS
